@@ -1,19 +1,19 @@
 # issie-web
 
-This project is a personal experiment to migrate the desktop application [ISSIE](https://github.com/tomcl/issie) to the browser.
+This project is a personal experiment to port the desktop application [ISSIE](https://github.com/tomcl/issie) to the browser.
 
-It is mainly created for fun and experimentation and may change without notice.
+It is mainly created for fun and experimentation.
 
 **Try it in your browser:** https://lwzsama.github.io/issie-web/
 
 ## Important Notice
 
 - This project includes **a significant amount of AI-generated code** and **has not been fully audited**.
-- This project **does not guarantee stability or correctness**
-- It is **not recommended for production or daily use**
-- Always **backup your work** before opening or editing important projects
-- Do **not rely on this software for long editing sessions**
-- Save **frequently** if you use it
+- This project **does not guarantee stability or correctness**.
+- It is **not recommended for production or daily use**.
+- Always **backup your work** before opening or editing important projects.
+- Do **not rely on this project for long editing sessions**.
+- Save **frequently** if you use it.
 
 For long-term use, please use the original desktop [Issie](https://github.com/tomcl/issie).
 
