@@ -17,11 +17,6 @@ It is mainly created for fun and experimentation and may change without notice.
 
 For long-term use, please use the original desktop [Issie](https://github.com/tomcl/issie).
 
-## Maintenance
-
-This project may receive little or no long-term maintenance.
-Contributions are welcome but not guaranteed to be reviewed or merged.
-
 ## License
 
 This project is based on the original Issie project and therefore follows the same GPL-3.0 license.
