@@ -1,0 +1,48 @@
+{
+  "name": "issie-web",
+  "version": "5.12.1",
+  "description": "Browser-first digital circuit editor and simulator built with F#, Fable, and Webpack.",
+  "homepage": "https://lwzsama.github.io/issie-web/",
+  "bugs": {
+    "url": "https://github.com/LWZsama/issie-web/issues"
+  },
+  "license": "GPL-3.0-or-later",
+  "author": "LWZsama and contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LWZsama/issie-web.git"
+  },
+  "scripts": {
+    "typecheck": "node scripts/typecheck-renderer.js",
+    "build": "node scripts/build-web.js"
+  },
+  "dependencies": {
+    "bulma": "^1.0",
+    "bulma-tooltip": "^3",
+    "classnames": "^2",
+    "core-js": "^3",
+    "font-awesome": "^4",
+    "katex": "^0.16.21",
+    "nearley": "^2.20.1",
+    "nearley-unparse": "^1.0.1",
+    "prismjs": "^1.30",
+    "react": "^17",
+    "react-dom": "17",
+    "react-router-dom": "^6",
+    "react-simple-code-editor": "0.14.1",
+    "react-tooltip": "^5",
+    "uuid": "11"
+  },
+  "devDependencies": {
+    "babel-loader": "^10",
+    "css-loader": "^6",
+    "file-loader": "^6",
+    "fs-extra": "11.3.0",
+    "html-webpack-plugin": "^5",
+    "mini-css-extract-plugin": "^2",
+    "source-map-loader": "^5",
+    "webpack": "^5",
+    "webpack-cli": "^5"
+  },
+  "private": true
+}

@@ -1,0 +1,167 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
+    <RestoreConfigFile>$(MSBuildThisFileDirectory)../../Nuget.Config</RestoreConfigFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup>
+    <RepositoryUrl>https://github.com/LWZsama/issie-web</RepositoryUrl>
+  </PropertyGroup>
+  <PropertyGroup>
+      <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Fable.Browser.Css" Version="2.2" />
+    <PackageReference Include="Fable.Browser.Dom" Version="2.18.1" />
+    <PackageReference Include="Fable.Core" Version="3.7.1" />
+    <PackageReference Include="Fable.Electron" Version="6.0" />
+    <PackageReference Include="Fable.Elmish" Version="3.1" />
+    <PackageReference Include="Fable.Elmish.Debugger" Version="3.3" />
+    <PackageReference Include="Fable.Elmish.HMR" Version="5.2" />
+    <PackageReference Include="Fable.Elmish.React" Version="3.0.1" />
+    <PackageReference Include="Fable.Node" Version="1.2" />
+    <PackageReference Include="Fable.Promise" Version="3.1.3" />
+    <PackageReference Include="Fable.React" Version="8.0.1" />
+    <PackageReference Include="Fable.SimpleJson" Version="3.24" />
+    <PackageReference Include="Fulma" Version="2.16" />
+    <PackageReference Include="Fulma.Extensions.Wikiki.Tooltip" Version="3.0" />
+    <PackageReference Include="Thoth.Json" Version="7.0" />
+    <PackageReference Include="Thoth.Json.Net" Version="11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Common definitions -->
+    <Compile Include="Common/EEExtensions.fs" />
+    <Compile Include="Common/Optics.fs" />
+    <Compile Include="Common/ElectronAPI.fs" />
+    <Compile Include="Common/HashMap.fs" />
+    <Compile Include="Common/ParameterTypes.fs" />
+    <Compile Include="Common/CommonTypes.fs" />
+    <Compile Include="Common/DrawHelpers.fs" />
+    <Compile Include="Common/Helpers.fs" />
+    <Compile Include="Common/TimeHelpers.fs" />
+    <Compile Include="Common/WidthInferer.fs" />
+
+	  <!-- UART -->
+    <Compile Include="UartFiles/BuildUartHelpers.fs" />
+
+	  <!-- simulator -->
+    <Compile Include="Simulator/SimGraphTypes.fs" />
+    <Compile Include="Simulator/BiBits.fs" />
+    <Compile Include="Simulator/SimTypes.fs" />
+    <Compile Include="Simulator/TruthTableTypes.fs" />
+    <Compile Include="Simulator/NumberHelpers.fs" />
+    <Compile Include="Simulator/CanvasExtractor.fs" />
+    <Compile Include="Simulator/SynchronousUtils.fs" />
+    <Compile Include="Simulator/CanvasStateAnalyser.fs" />
+    <Compile Include="Simulator/GraphBuilder.fs" />
+    <Compile Include="Simulator/GraphMerger.fs" />
+    <Compile Include="Simulator/SimulationGraphAnalyser.fs" />
+    <Compile Include="Simulator/FastSim/FastCreate.fs" />
+    <Compile Include="Simulator/FastSim/FastReduce.fs" />
+    <Compile Include="Simulator/FastSim/FastReduceTT.fs" />
+    <Compile Include="Simulator/FastSim/FastRun.fs" />
+    <Compile Include="Simulator/FastSim/FastExtract.fs" />
+    <Compile Include="Simulator/Simulator.fs" />
+    <Compile Include="VerilogComponent/Verilog.fs" />
+
+    <!-- Verilog Component -->
+    <Compile Include="VerilogComponent/VerilogTypes.fs" />
+    <Compile Include="VerilogComponent/VerilogAST.fs" />
+    <Compile Include="VerilogComponent/NearleyBindings.fs" />
+    <Compile Include="VerilogComponent/ErrorCheckHelpers.fs" />
+    <Compile Include="VerilogComponent/ErrorCheckProcedural.fs" />
+    <Compile Include="VerilogComponent/ErrorCheck.fs" />
+    <Compile Include="VerilogComponent/SheetCreator.fs" /> 
+    <Compile Include="VerilogComponent/CodeEditorHelpers.fs" />   
+
+    <!-- JS and File interface -->
+    <Compile Include="Interface/Version.fs" />
+    <Compile Include="Interface/JSHelpers.fs" />
+    <Compile Include="Interface/FilesIO.fs" />
+    <Compile Include="Interface/WorkerInterface.fs" />
+    <None Include="scss/main.scss" />
+
+	<!-- Elmish Model -->
+    <Compile Include="Model/DrawModelType.fs" />
+    <Compile Include="Model/ModelType.fs" />
+	  
+	<!-- Draw Block -->
+	<Compile Include="DrawBlock/BlockHelpers.fs" />
+    <Compile Include="DrawBlock/SymbolHelpers.fs" />
+    <Compile Include="DrawBlock/PopupHelpers.fs" />
+    <Compile Include="DrawBlock/Symbol.fs" />
+	<Compile Include="DrawBlock/SymbolView.fs" />
+	<Compile Include="DrawBlock/SymbolPortHelpers.fs" />
+    <Compile Include="DrawBlock/SymbolResizeHelpers.fs" />
+	<Compile Include="DrawBlock/SymbolReplaceHelpers.fs" />
+    <Compile Include="DrawBlock/SymbolUpdate.fs" />
+    <Compile Include="DrawBlock/BusWire.fs" />
+	<Compile Include="DrawBlock/BusWireUpdateHelpers.fs" />
+	<Compile Include="DrawBlock/BusWireRoutingHelpers.fs" />
+	<Compile Include="DrawBlock/BusWireRoute.fs" />
+	<Compile Include="DrawBlock/BusWireSeparate.fs" />
+    <Compile Include="DrawBlock/BusWireUpdate.fs" />
+    <Compile Include="DrawBlock/RotateScale.fs" />
+    <Compile Include="DrawBlock/Sheet.fs" />
+    <Compile Include="DrawBlock/SheetSnap.fs" />
+    <Compile Include="DrawBlock/SheetDisplay.fs" />
+	<Compile Include="DrawBlock/SheetUpdateHelpers.fs" />
+    <Compile Include="DrawBlock/SheetUpdate.fs" />
+    <Compile Include="UI/Editor.fs" />
+    <!-- UI -->
+    <Compile Include="UI/ModelHelpers.fs" />
+    <Compile Include="UI/Style.fs" />
+    <Compile Include="UI/Notifications.fs" />
+    <Compile Include="UI/UIPopups.fs" />
+    <Compile Include="UI/MemoryEditorView.fs" />
+    <Compile Include="UI/MenuHelpers.fs" />
+    <Compile Include="UI/BrowserSession.fs" />
+    <Compile Include="UI/MiscMenuView.fs" />
+    <Compile Include="UI/TopMenuView.fs" />
+    <Compile Include="UI/CustomCompPorts.fs" />
+    <Compile Include="UI/SimulationView.fs" />
+    <Compile Include="UI/StepSimulationTop.fs" />
+    <Compile Include="UI/TruthTable/TruthTableReduce.fs" />
+    <Compile Include="UI/TruthTable/TruthTableCreate.fs" />
+    <Compile Include="UI/TruthTable/ConstraintReduceView.fs" />
+    <Compile Include="UI/TruthTable/TruthTableView.fs" />
+    <Compile Include="UI/TruthTable/TruthTableUpdate.fs" />
+    <Compile Include="UI/BuildView.fs" />
+    <Compile Include="UI/ParameterView.fs" />
+    <Compile Include="UI/CatalogueView.fs" />
+    <Compile Include="UI/SelectedComponentView.fs" />
+    <Compile Include="UI/WaveSim/WaveSimTypes.fs" />
+    <Compile Include="UI/WaveSim/EvilHoverCache.fs" />
+    <Compile Include="UI/WaveSim/WaveSimStyle.fs" />
+    <Compile Include="UI/WaveSim/WaveSimHelpers.fs" />
+    <Compile Include="UI/WaveSim/WaveSimNavigation.fs" />
+    <Compile Include="UI/WaveSim/WaveSimSelectHelpers.fs" />
+    <Compile Include="UI/WaveSim/WaveSimSelect.fs" />
+    <Compile Include="UI/WaveSim/WaveSimSVGs.fs" />
+    <Compile Include="UI/WaveSim/WaveSimWaveforms.fs" />
+    <Compile Include="UI/WaveSim/WaveSimRams.fs" />
+    <Compile Include="UI/WaveSim/WaveSimTop.fs" />
+    <Compile Include="UI/MainView.fs" />
+    <Compile Include="UI/ContextMenus.fs" />
+    <Compile Include="UI/FileUpdate.fs" />
+    <Compile Include="UI/UpdateHelpers.fs" />
+    <Compile Include="UI/Update.fs" />
+
+    <Compile Include="VerilogComponent/TestParser.fs" />
+    <Compile Include="TestWorker.fs" />
+    <Compile Include="Playground.fs" />
+
+    <Compile Include="Renderer.fs" />
+  </ItemGroup>
+</Project>
+
+
+
+

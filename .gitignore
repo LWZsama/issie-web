@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+.fable/
+
+# Local tool state
+.dotnet/
+.nuget/
+.user/
+.fsdocs/
+.fake/
+tmp/
+output/
+
+# .NET / F# artifacts
+**/bin/
+**/obj/
+**/*.fable-temp.csproj
+
+# Generated Fable output
+src/Renderer/fable_modules/
+src/Renderer/**/*.js
+!src/Renderer/UartFiles/IS-uart-browser.js
+!src/Renderer/VerilogComponent/parser.js
+!src/Renderer/VerilogComponent/prism.js
+!src/Renderer/VerilogComponent/VerilogGrammar.js
+!src/Renderer/VerilogComponent/test/testParser.js
+src/**/*.js.map
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Editor / IDE files
+.vscode/
+.idea/
+.ionide/
+.vs/
+*.suo
+*.user
+*.userprefs
+*.sln.docstates
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary / backup files
+*.tmp
+*.temp
+*.cache
+*.cachefile
+*.bak
+*.orig
+*.history
+*~
+~$*

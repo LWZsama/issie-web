@@ -1,0 +1,414 @@
+//(*
+//    MemoryEditorView.fs
+//
+//    A simple Popup editor to view and change the content of a memory.
+//*)
+//
+module MemoryEditorView
+
+open Fulma
+open Fable.React
+open Fable.React.Props
+
+open Helpers
+open NumberHelpers
+open JSHelpers
+open CommonTypes
+open ModelType
+open PopupHelpers
+open Notifications
+open DrawModelType
+open Sheet.SheetInterface
+
+open Optics
+open Optics.Operators
+
+
+let project_ = currentProj_ >-> Optics.Option.value_
+
+
+/// Prism to select Memory1 from ComponentType (if it exists)
+let memory1_ = 
+    Prism.create 
+        (fun (a:Component) -> match a.Type with | Memory mem -> Some mem | _ -> None)
+        (fun (mem:Memory1) -> 
+            Optic.map type_ (fun typ -> 
+                match typ with 
+                | MemoryAndType(typ, _) -> typ mem 
+                | typ -> typ))
+
+
+/// Updates FromData memories from linked files in all LoadedComponents INCLUDING that of the open sheet
+/// For the open sheet the update must also be made be on the draw blok component
+let updateLoadedComponentMemory (memUpdate: Memory1 -> Memory1) =
+    let compUpdate = Optic.map memory1_ memUpdate
+    let updateProject (p: Project) =
+        let updateSheetComponents (f: Component -> Component) =
+            Optic.map componentsState_ (List.map f) 
+        p.LoadedComponents
+        |> List.map (updateSheetComponents compUpdate)
+        |> (fun ldcs -> Optic.set (loadedComponents_) ldcs p)
+    Optic.map project_ (updateProject)
+
+/// Update one FromData Memory1 in project to equal its linked file memory file contents.
+/// Silently do not update components where the file reading fails
+let updateMemory (p: Project) (mem: Memory1) =
+    match mem.Init with
+    | FromFile fName ->
+        FilesIO.initialiseMem mem p.ProjectPath
+        |> function | Ok mem -> mem | Error e -> mem
+    | _ -> mem // no change
+
+/// Update all file-linked memory components in Draw Block (attached to symbols) and relevant loadedcomponent
+let updateDrawBlockMemoryComps  (memUpdate: Memory1 -> Memory1) (p: Project) =
+    let updateSymbol = (Optic.map (SymbolT.component_ >-> memory1_) (updateMemory p))
+    Optic.map 
+        (sheet_ >->  SheetT.wire_ >-> BusWireT.symbol_ >-> SymbolT.symbols_)
+        (Map.map (fun _  -> updateSymbol))
+
+/// Update all file-linked memory components in Draw Block and LoadedComponents   
+let updateAllMemoryComps (model: Model) =
+    match model.CurrentProj with 
+    | None -> model
+    | Some p ->
+        model
+        |> updateDrawBlockMemoryComps (updateMemory p) p
+        |> (updateLoadedComponentMemory (updateMemory p))
+
+
+    
+
+let private popupExtraStyle = [ Width "65%"; Height "80%" ]
+let private headerHeight = 60;
+let private headerStyle = Style [
+    Position PositionOptions.Fixed
+    MarginTop (string (-headerHeight-20) + "px")
+    PaddingTop "20px"
+    PaddingBottom "60px"
+    BackgroundColor "white"
+    Width "61%"
+    Height headerHeight
+    CSSProp.ZIndex 32
+]
+let private bodyStyle = Style [
+    MarginTop (string headerHeight + "px")
+]
+
+let private showError msg dispatch : unit =
+    errorNotification msg CloseMemoryEditorNotification
+    |> SetMemoryEditorNotification |> dispatch
+
+let private closeError dispatch : unit =
+    CloseMemoryEditorNotification |> dispatch
+
+let private showRowWithAdrr memoryEditorData addr =
+    match memoryEditorData.Address with
+    | None -> true
+    | Some a when a = addr -> true
+    | _ -> false
+
+let viewNum numBase =
+    match numBase with | Hex -> hexBignum | Dec -> decBignum | Bin -> binBignum | SDec -> sDecBignum 0
+
+let viewFilledNum width numBase =
+    match numBase with | Hex -> fillHexBignum width | Dec -> decBignum | Bin -> fillBinBignum width | SDec -> sDecBignum width
+
+// let private baseToStr b = match b with | Hex -> "hex" | Dec -> "dec" | Bin -> "bin"
+
+
+let mutable dynamicMem: Memory1 = { 
+    Init = FromData; 
+    WordWidth = 0; 
+    AddressWidth = 0; 
+    Data = Map.empty 
+    } // Need to use a mutable dynamic memory and update it locally so that the shown values are correct since the model is not immediately updated
+
+let baseSelector numBase changeBase =
+    Level.item [ Level.Item.HasTextCentered ] [
+        Field.div [ Field.HasAddonsCentered ] [
+            Control.div [] [ Button.button [
+                Button.Color (if numBase = Hex then IsPrimary else NoColor)
+                Button.OnClick (fun _ -> changeBase Hex)
+            ] [ str "hex" ] ]
+            Control.div [] [ Button.button [
+                Button.Color (if numBase = Dec then IsPrimary else NoColor)
+                Button.OnClick (fun _ -> changeBase Dec)
+            ] [ str "dec" ] ]
+            Control.div [] [ Button.button [
+                Button.Color (if numBase = Bin then IsPrimary else NoColor)
+                Button.OnClick (fun _ -> changeBase Bin)
+            ] [ str "bin" ] ]
+        ]
+    ]
+
+let changeBase memoryEditorData dispatch numBase =
+    { memoryEditorData with NumberBase = numBase }
+    |> Some |> SetPopupMemoryEditorData |> dispatch
+
+//========//
+// Editor //
+//========//
+/// Function creating react input box for memory address for use in WaveSim code (could also be used here).
+/// setMemoryAddress dispatches a message to set the memory address to that typed in the input box.
+/// numberBase, addressWidth configure the view.
+/// TODO: make box width variable according to memory width?
+let reactMemoryAddressInputBox numberBase addressWidth setMemoryAddress dispatch =
+    Input.text [
+        Input.Props [ Style [ MarginLeft "10px"; Width "80px" ] ]
+        Input.DefaultValue ""
+        Input.Placeholder <| viewNum numberBase 0I
+        Input.OnChange (getTextEventValue >> fun text ->
+            match text with
+            | "" -> closeError dispatch
+                    dispatch <| setMemoryAddress None
+            | t ->
+                match strToBigint t with
+                | Error err -> showError err dispatch
+                | Ok addr ->
+                    let w = addressWidth
+                    if addr >= (1I <<< w)
+                    then showError "Address out of bounds." dispatch
+                    else closeError dispatch
+                         dispatch <| setMemoryAddress (Some addr)
+                         
+        )
+    ]
+
+let private makeEditorHeader memory isDiff memoryEditorData dispatch =
+    div [headerStyle; SpellCheck false] [
+        Level.level [] ([
+            Level.item [ Level.Item.HasTextCentered ] [
+                str <| sprintf $"Number of elements: {decBignum (1I <<< memory.AddressWidth)}"
+                br []
+                str <| sprintf "Word width: %d bit(s)" memory.WordWidth
+            ]
+            Level.item [ Level.Item.HasTextCentered ] [
+                str <| "First Location To View or Change"
+                Input.text [
+                    Input.Props [ Style [ MarginLeft "10px"; Width "80px" ] ]
+                    Input.DefaultValue ""
+                    Input.Placeholder <| viewNum memoryEditorData.NumberBase 0I
+                    Input.OnChange (getTextEventValue >> fun text ->
+                        match text with
+                        | "" -> closeError dispatch
+                                { memoryEditorData with Address = None }
+                                |> Some |> SetPopupMemoryEditorData |> dispatch
+                        | t ->
+                            match strToBigint t with
+                            | Error err -> showError err dispatch
+                            | Ok addr ->
+                                let w = memory.AddressWidth
+                                if w < 64 && addr >= (1I <<< w)
+                                then showError "Address out of bounds." dispatch
+                                else closeError dispatch
+                                     { memoryEditorData with Address = Some addr }
+                                     |> Some |> SetPopupMemoryEditorData |> dispatch
+                    )
+                ]
+            ]
+            baseSelector memoryEditorData.NumberBase (changeBase memoryEditorData dispatch)
+        ] @ (if isDiff // Add extra filter.
+            then [
+                Level.item [ Level.Item.HasTextCentered ] [
+                    Checkbox.checkbox [] [
+                        Checkbox.input [ Props [
+                            Style [ MarginRight "5px" ]
+                            Checked memoryEditorData.OnlyDiff
+                            OnChange (fun _ ->
+                                { memoryEditorData with OnlyDiff = not memoryEditorData.OnlyDiff }
+                                |> Some |> SetPopupMemoryEditorData |> dispatch
+                            )
+                        ] ]
+                        str "Show only if changed"
+                    ]
+                ]
+            ]
+            else []
+        ))
+    ]
+
+let private makeEditorBody memory compId memoryEditorData model (dispatch: Msg -> unit) =
+    let sheetDispatch sMsg = dispatch (Sheet sMsg)
+    let source = memory.Init
+    let isReadOnly =
+        match source with
+        | SignedMultiplier
+        | UnsignedMultiplier ->
+            $"Fixed multiplier blocks cannot have initial value edited"
+        | FromFile fName -> 
+            $"This memory takes initial values from {fName}.ram, edit the file to change them"
+        | ToFile fName->
+            $"This memory is linked to File {fName}.ram, changes made here will be save dto that file"
+        | _ -> ""
+    let showRow = showRowWithAdrr memoryEditorData
+    let viewNumD = viewFilledNum memory.WordWidth memoryEditorData.NumberBase
+    let viewNumA = viewFilledNum memory.AddressWidth memoryEditorData.NumberBase
+    let numLocsToDisplay = 16I
+    let maxLocAddr = ((1I <<< memory.AddressWidth) - 1I)
+    let startLoc, endLoc =
+        match memoryEditorData.Address with
+        | None -> 0I, min maxLocAddr numLocsToDisplay
+        | Some a -> 
+            let maxDispLocWrapped = a + numLocsToDisplay - 1I
+            let maxDispLoc = if maxDispLocWrapped > a then maxDispLocWrapped else twosComp memory.AddressWidth -1I
+            a, min  maxDispLoc maxLocAddr
+    //printfn "makeEditorBody called"
+
+    //printfn "Making body with data=%A, dynamic %A" memory.Data dynamicMem
+    // let memory = dynamicMem
+    let makeRow isReadOnly (memData: Map<bigint,bigint>) (addr: bigint) =
+        let content =  // Need to keep the changes locally as well, since the model does not immediately get updated
+            Map.tryFind (addr) memData
+            |> Option.defaultValue 0I
+        //printfn "load"
+        tr [ SpellCheck false; Style [  Display (if true then DisplayOptions.TableRow else DisplayOptions.None)] ] [
+            td [] [ str <| viewNumA (addr) ]
+            td [] [
+                let handleInput  (ev: Browser.Types.FocusEvent) =
+                    let text = getTextEventValue ev
+                    //printfn "change"
+                    match strToIntCheckWidth memory.WordWidth text with
+                    | Ok value ->
+                        // Close error notification.
+                        closeError dispatch
+                        // Write new value.
+                        let oldData =
+                            let comp = model.Sheet.GetComponentById compId
+                            comp.Type |> (function | (RAM1 d) | (ROM1 d) | (AsyncROM1 d) | (AsyncRAM1 d)-> d
+                                                    | _ ->
+                                                       printfn "Should not be here"
+                                                       memory)
+
+                        dynamicMem <- { dynamicMem with Data = Map.add addr value dynamicMem.Data }
+                        model.Sheet.WriteMemoryLine sheetDispatch compId addr value // Only update one row
+                        
+                        dispatch (ReloadSelectedComponent model.LastUsedDialogWidth)
+                        //printfn "setting value=%d, addr=%d" value addr                       
+                    | Error err -> 
+                        showError err dispatch
+                
+                Input.text [
+                    Input.Props [ 
+                        OnBlur handleInput ; 
+                        Key <| ( memoryEditorData.NumberBase.ToString() + (addr,content).ToString())
+                        ] 
+                    Input.Disabled isReadOnly
+                    Input.DefaultValue <| viewNumD content
+                    Input.Option.OnChange <| (getTextEventValue >> (fun text ->
+                        match strToIntCheckWidth memory.WordWidth text with
+                        | Error err -> showError err dispatch
+                        | Ok _ -> closeError dispatch))                    
+                ]
+            ]
+        ]
+
+    div [bodyStyle] [
+        str isReadOnly
+        br []
+        Table.table [ Table.IsFullWidth ] [
+            thead [] [ tr [] [
+                th [] [str "Address"]
+                th [] [str "Content"]
+            ] ]
+            tbody [] ( [startLoc..endLoc] |> List.map (makeRow (isReadOnly <> "") memory.Data))
+        ]
+    ]
+
+let private makeFoot editMode dispatch (model: Model)=
+    let lastUsedDialogWidth = model.LastUsedDialogWidth
+    let action =
+        fun _ -> dispatch CloseMemoryEditorNotification
+                 dispatch ClosePopup
+                 // Diff mode is triggered by a simulationView, not by a
+                 // selected component.
+                 match editMode with
+                 | Some FromData ->
+                    dispatch (ReloadSelectedComponent lastUsedDialogWidth)
+                 | _ -> ()
+    Level.level [ Level.Level.Props [ Style [ Width "100%" ] ] ] [
+        Level.left [] []
+        Level.right [] [ Level.item [] [ Button.button [
+            Button.Color IsPrimary
+            Button.OnClick action
+        ] [ str "Done" ] ] ]
+    ]
+
+let private makeEditor memory compId model dispatch =
+    // printfn "makeEditor called"
+    dynamicMem <- // Need to use a mutable dynamic memory and update it locally so that the shown values are correct since the model is not immediately updated
+        match model.SelectedComponent with
+        | Some {Type=RAM1 mem} | Some {Type=ROM1 mem} |Some {Type = AsyncROM1 mem} | Some {Type = AsyncRAM1 mem} -> mem
+        | _ -> memory
+    fun memoryEditorData ->
+        div [] [
+            makeEditorHeader dynamicMem false memoryEditorData dispatch
+            makeEditorBody dynamicMem compId memoryEditorData model dispatch
+        ]
+
+/// Open a popup to view and edit the content of a memory.
+let openMemoryEditor memory compId model dispatch : unit =
+    let model = updateAllMemoryComps model // update memories in current model
+    // Build editor.
+    let title = "Memory editor"
+    let body = makeEditor memory compId model dispatch
+    let foot = makeFoot (Some memory.Init) dispatch model
+    showMemoryEditorPopup (Some title) body (Some foot) popupExtraStyle dispatch
+
+//=============//
+// Diff viewer //
+//=============//
+
+let private makeDiffViewerBody memory1 memory2 memoryEditorData =
+    let getData addr memData =
+        Map.tryFind addr memData
+        |> Option.defaultValue 0I
+    let viewNum = viewNum memoryEditorData.NumberBase
+    let makeRow content1 content2 addr =
+        let hasChanged = content1 <> content2
+        let showRow addr =
+            showRowWithAdrr memoryEditorData addr && (
+                not memoryEditorData.OnlyDiff ||
+                memoryEditorData.OnlyDiff && hasChanged)
+        tr [ Style [ Display (if showRow addr then DisplayOptions.TableRow else DisplayOptions.None)] ] [
+            td [] [ str <| viewNum addr ]
+            td [
+                Style [BackgroundColor (if hasChanged then "#ffc6d3" else "auto") ]
+            ] [ str <| viewNum content1 ]
+            td [
+                Style [BackgroundColor (if hasChanged then "#baffd3" else "auto") ]
+            ] [ str <| viewNum content2 ]
+        ]
+    let addr = Option.defaultValue 0I memoryEditorData.Address
+    let addr2 = addr + 15I
+
+    div [bodyStyle] [
+        Table.table [ Table.IsFullWidth ] [
+            thead [] [ tr [] [
+                th [] [str "Address"]
+                th [] [str "Initial content"]
+                th [] [str "Current content"]
+            ] ]
+            tbody [] (
+                [addr..addr2] |> List.map (fun a -> (makeRow (getData a memory1.Data) (getData a memory2.Data) a))
+            )
+        ]
+    ]
+
+let private makeDiffViewer memory1 memory2 dispatch =
+    fun memoryEditorData ->
+        div [] [
+            makeEditorHeader memory1 true memoryEditorData dispatch
+            makeDiffViewerBody memory1 memory2 memoryEditorData
+        ]
+
+let openMemoryDiffViewer memory1 memory2 model dispatch : unit =
+#if ASSERTS
+    assertThat (memory1.AddressWidth = memory2.AddressWidth &&
+                memory1.WordWidth = memory2.WordWidth)
+    <| sprintf "Memories in diffViewer do not match: %A\n%A" memory1 memory2
+#endif
+    // Build editor.
+    let title = "Memory diff viewer"
+    let body = makeDiffViewer memory1 memory2 dispatch
+    let foot = makeFoot None dispatch model
+    showMemoryEditorPopup (Some title) body (Some foot) popupExtraStyle dispatch
