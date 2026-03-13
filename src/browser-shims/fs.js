@@ -36,6 +36,18 @@ function toHttpPath(inputPath) {
   return `${inputPath || ""}`.replace(/\\/g, "/").replace(/\/$/, "");
 }
 
+function httpDirname(filePath) {
+  const normalized = toHttpPath(filePath);
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash <= 0 ? "" : normalized.slice(0, lastSlash);
+}
+
+function httpBasename(filePath) {
+  const normalized = toHttpPath(filePath);
+  const lastSlash = normalized.lastIndexOf("/");
+  return lastSlash < 0 ? normalized : normalized.slice(lastSlash + 1);
+}
+
 function readHttpFile(filePath) {
   const xhr = new XMLHttpRequest();
   xhr.open("GET", toHttpPath(filePath), false);
@@ -57,39 +69,39 @@ function tryReadHttpFile(filePath) {
 }
 
 function readHttpDirectoryManifest(folderPath) {
-  const normalizedFolder = normalizePath(folderPath);
+  const cacheKey = normalizePath(folderPath);
 
-  if (manifestCache.has(normalizedFolder)) {
-    return manifestCache.get(normalizedFolder);
+  if (manifestCache.has(cacheKey)) {
+    return manifestCache.get(cacheKey);
   }
 
   const manifestPath = `${toHttpPath(folderPath)}/index.json`;
   const payload = tryReadHttpFile(manifestPath);
 
   if (!payload) {
-    manifestCache.set(normalizedFolder, null);
+    manifestCache.set(cacheKey, null);
     return null;
   }
 
   try {
     const parsed = JSON.parse(payload);
     const manifest = Array.isArray(parsed) ? parsed : null;
-    manifestCache.set(normalizedFolder, manifest);
+    manifestCache.set(cacheKey, manifest);
     return manifest;
   } catch (_error) {
-    manifestCache.set(normalizedFolder, null);
+    manifestCache.set(cacheKey, null);
     return null;
   }
 }
 
 function hasHttpEntry(targetPath) {
-  const parentManifest = readHttpDirectoryManifest(dirname(targetPath));
+  const parentManifest = readHttpDirectoryManifest(httpDirname(targetPath));
 
   if (!parentManifest) {
     return null;
   }
 
-  return parentManifest.includes(basename(targetPath));
+  return parentManifest.includes(httpBasename(targetPath));
 }
 
 function listEntries(folderPath) {
