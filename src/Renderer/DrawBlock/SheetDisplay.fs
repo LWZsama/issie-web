@@ -14,6 +14,14 @@ open SheetSnap
 
 module Constants =
     let KeyPressPersistTimeMs = 1000.
+    let ZoomWheelStepThreshold = 120.0
+
+let mutable private zoomWheelAccumulator = 0.0
+
+let private floatSign value =
+    if value > 0.0 then 1.0
+    elif value < 0.0 then -1.0
+    else 0.0
 
 /// Hack to deal with possible Ctrl Key up when window is not focussed.
 /// This will not register as a keyup and so will stay in CurrentKeyPresses forever.
@@ -37,14 +45,42 @@ let getDrawBlockPos (ev: Types.MouseEvent) (headerHeight: float) (sheetModel:Mod
 
 let wheelUpdate (ev: Types.WheelEvent) model dispatch =
     let ctrlZoom =
-        ev.ctrlKey || List.exists (fun (k,_) -> k = "CONTROL") (getActivePressedKeys model)
+        ev.ctrlKey
+        || ev.metaKey
+        || List.exists (fun (k,_) -> k = "CONTROL" || k = "META") (getActivePressedKeys model)
 
     if ctrlZoom then
         ev.preventDefault()
-        if ev.deltaY > 0.0 then // Wheel Down
-            dispatch <| KeyPress ZoomOut
+        let scaleDelta =
+            match ev.deltaMode with
+            | 1.0 -> ev.deltaY * 16.0
+            | 2.0 -> ev.deltaY * 800.0
+            | _ -> ev.deltaY
+
+        let previousAccumulator = zoomWheelAccumulator
+        let nextAccumulator =
+            if previousAccumulator <> 0.0 && floatSign previousAccumulator <> floatSign scaleDelta then
+                scaleDelta
+            else
+                previousAccumulator + scaleDelta
+
+        let steps = int (abs nextAccumulator / Constants.ZoomWheelStepThreshold)
+
+        if steps > 0 then
+            let zoomMsg =
+                if nextAccumulator > 0.0 then
+                    KeyPress ZoomOut
+                else
+                    KeyPress ZoomIn
+
+            [ 1 .. steps ] |> List.iter (fun _ -> dispatch zoomMsg)
+
+            let remainder = abs nextAccumulator - float steps * Constants.ZoomWheelStepThreshold
+            zoomWheelAccumulator <- floatSign nextAccumulator * remainder
         else
-            dispatch <| KeyPress ZoomIn
+            zoomWheelAccumulator <- nextAccumulator
+    else
+        zoomWheelAccumulator <- 0.0
 
 let wheelUpdateMsg (ev: Types.WheelEvent) dispatch = Msg.ExecFuncInSheetMessage (fun model -> wheelUpdate ev model dispatch)
 

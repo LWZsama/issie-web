@@ -321,7 +321,12 @@ let update (msg : Msg) (issieModel : ModelType.Model): ModelType.Model*Cmd<Model
                     sheetCmd (KeyPress CtrlW)
                 else
                     Cmd.none
-            | false -> Cmd.none
+            | false ->
+                match key.ToUpper() with
+                | "DELETE"
+                | "DEL"
+                | "BACKSPACE" -> sheetCmd (KeyPress DEL)
+                | _ -> Cmd.none
 
 
         { model with CurrentKeyPresses = newPressedKeys }, newCmd

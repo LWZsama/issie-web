@@ -492,6 +492,11 @@ let private isShortcutKey (key: string) =
     | "A" | "C" | "V" | "W" | "Y" | "Z" -> true
     | _ -> false
 
+let private isDeleteShortcutKey (key: string) =
+    match key.ToUpper() with
+    | "DELETE" | "DEL" | "BACKSPACE" -> true
+    | _ -> false
+
 /// Used to listen for pressing down of Ctrl for selection toggle.
 /// Also for the code editor keys.
 /// TODO: use this for global key press info throughout Issie
@@ -521,6 +526,8 @@ let keyPressListener initial =
             if canvasShortcuts then
                 if key = " " then
                     e.preventDefault()
+                elif isDeleteShortcutKey key then
+                    e.preventDefault()
                 elif (jsToBool ke.ctrlKey || jsToBool ke.metaKey) && isShortcutKey key then
                     e.preventDefault())
 
@@ -540,12 +547,7 @@ let keyPressListener initial =
     let subWheel dispatch =
         addGlobalWheelListener (fun e ->
             if (e.ctrlKey || e.metaKey) && isCanvasInteractionTarget e.target then
-                e.preventDefault()
-                dispatch <| Sheet(
-                    if e.deltaY > 0. then
-                        SheetT.KeyPress SheetT.KeyboardMsg.ZoomOut
-                    else
-                        SheetT.KeyPress SheetT.KeyboardMsg.ZoomIn))
+                e.preventDefault())
 
     let subRightClick dispatch =
         Browser.Dom.document.addEventListener("contextmenu", unbox (fun (e: Browser.Types.MouseEvent) ->
