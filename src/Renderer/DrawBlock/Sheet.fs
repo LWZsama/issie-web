@@ -85,6 +85,8 @@ module Constants =
     let minMagnification = 0.1
     /// factor by which zoom is increased or decreased
     let zoomIncrement = 1.2
+    /// smaller step for wheel/pinch zoom so trackpads feel usable in the browser
+    let fineZoomIncrement = 1.05
     /// aspect ratio required before align or distribute can be done
     let boxAspectRatio = 2. 
     /// geometry parameters for sizing circuits
@@ -701,5 +703,4 @@ let notIntersectingSelectedComponents (model: Model) (box1: BoundingBox) (inputI
    model.BoundingBoxes |> Map.filter (fun sId _ -> List.contains sId model.SelectedComponents)
    |> Map.filter (fun sId boundingBox -> boxesIntersect boundingBox box1 && inputId <> sId)
    |> Map.isEmpty
-
 

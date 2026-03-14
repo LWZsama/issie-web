@@ -477,7 +477,8 @@ module SheetT =
 
     /// For Keyboard messages
     type KeyboardMsg =
-        | CtrlS | CtrlC | CtrlV | CtrlZ | CtrlY | CtrlA | CtrlW | AltC | AltV | AltZ | AltShiftZ | ZoomIn | ZoomOut | DEL | ESC
+        | CtrlS | CtrlC | CtrlV | CtrlZ | CtrlY | CtrlA | CtrlW | AltC | AltV | AltZ | AltShiftZ
+        | ZoomIn | ZoomOut | ZoomInFine | ZoomOutFine | DEL | ESC
 
     type WireTypeMsg =
         | Jump | Radiussed | Modern

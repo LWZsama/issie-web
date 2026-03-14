@@ -13,8 +13,7 @@ open Sheet
 open SheetSnap
 
 module Constants =
-    let KeyPressPersistTimeMs = 1000.
-    let ZoomWheelStepThreshold = 120.0
+    let ZoomWheelStepThreshold = 30.0
 
 let mutable private zoomWheelAccumulator = 0.0
 
@@ -29,8 +28,7 @@ let private floatSign value =
 /// If the mots recent keydown is longer than some cutoff time assume key is no longer pressed.
 let getActivePressedKeys model =
     let timeNow = TimeHelpers.getTimeMs()
-    List.filter (fun (_,time) -> timeNow - time < Constants.KeyPressPersistTimeMs) model.CurrentKeyPresses
-
+    List.filter (fun (_,time) -> timeNow - time < 1000.0) model.CurrentKeyPresses
 
 /// This actually writes to the DOM a new scroll position.
 /// In the special case that DOM has not yet been created it does nothing.
@@ -43,11 +41,8 @@ let getDrawBlockPos (ev: Types.MouseEvent) (headerHeight: float) (sheetModel:Mod
         Y = (ev.pageY - headerHeight + sheetModel.ScreenScrollPos.Y) / sheetModel.Zoom
     }
 
-let wheelUpdate (ev: Types.WheelEvent) model dispatch =
-    let ctrlZoom =
-        ev.ctrlKey
-        || ev.metaKey
-        || List.exists (fun (k,_) -> k = "CONTROL" || k = "META") (getActivePressedKeys model)
+let wheelUpdate (ev: Types.WheelEvent) dispatch =
+    let ctrlZoom = ev.ctrlKey || ev.metaKey
 
     if ctrlZoom then
         ev.preventDefault()
@@ -69,9 +64,9 @@ let wheelUpdate (ev: Types.WheelEvent) model dispatch =
         if steps > 0 then
             let zoomMsg =
                 if nextAccumulator > 0.0 then
-                    KeyPress ZoomOut
+                    KeyPress ZoomOutFine
                 else
-                    KeyPress ZoomIn
+                    KeyPress ZoomInFine
 
             [ 1 .. steps ] |> List.iter (fun _ -> dispatch zoomMsg)
 
@@ -81,8 +76,6 @@ let wheelUpdate (ev: Types.WheelEvent) model dispatch =
             zoomWheelAccumulator <- nextAccumulator
     else
         zoomWheelAccumulator <- 0.0
-
-let wheelUpdateMsg (ev: Types.WheelEvent) dispatch = Msg.ExecFuncInSheetMessage (fun model -> wheelUpdate ev model dispatch)
 
 let focusCanvas () =
     document.getElementById("Canvas")
@@ -145,7 +138,7 @@ let displaySvgWithZoom
               match not firstView, scrollOpt with
                 | true, Some scroll ->putScrollProps scroll |> ignore
                 | _ -> ()
-              OnWheel (fun ev -> dispatch <| wheelUpdateMsg ev dispatch)
+              OnWheel (fun ev -> wheelUpdate ev dispatch)
         ]
     div (scrollAttrL @  attrs)
         [
