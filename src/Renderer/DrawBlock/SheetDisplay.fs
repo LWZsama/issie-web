@@ -14,7 +14,7 @@ open SheetSnap
 
 module Constants =
     let KeyPressPersistTimeMs = 1000.
-    let ZoomWheelStepThreshold = 120.0
+    let ZoomWheelStepThreshold = 24.0
 
 let mutable private zoomWheelAccumulator = 0.0
 
@@ -69,9 +69,9 @@ let wheelUpdate (ev: Types.WheelEvent) model dispatch =
         if steps > 0 then
             let zoomMsg =
                 if nextAccumulator > 0.0 then
-                    KeyPress ZoomOut
+                    KeyPress ZoomOutFine
                 else
-                    KeyPress ZoomIn
+                    KeyPress ZoomInFine
 
             [ 1 .. steps ] |> List.iter (fun _ -> dispatch zoomMsg)
 
