@@ -520,6 +520,7 @@ module SheetT =
         | KeyPress of KeyboardMsg
         | ToggleGrid
         | KeepZoomCentered of XYPos
+        | PreciseZoom of float
         | MouseMsg of MouseT
         | MouseMsgOrig of Browser.Types.MouseEvent * MouseOp * float
         | UpdateBoundingBoxes

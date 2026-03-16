@@ -41,16 +41,31 @@ let getDrawBlockPos (ev: Types.MouseEvent) (headerHeight: float) (sheetModel:Mod
         Y = (ev.pageY - headerHeight + sheetModel.ScreenScrollPos.Y) / sheetModel.Zoom
     }
 
-let wheelUpdate (ev: Types.WheelEvent) dispatch =
-    let ctrlZoom = ev.ctrlKey || ev.metaKey
+let private normalizedWheelDelta (ev: Types.WheelEvent) =
+    match ev.deltaMode with
+    | 1.0 -> ev.deltaY * 16.0
+    | 2.0 -> ev.deltaY * 800.0
+    | _ -> ev.deltaY
 
-    if ctrlZoom then
+let wheelUpdate (ev: Types.WheelEvent) model dispatch =
+    let modifierKeysDown =
+        getActivePressedKeys model
+        |> List.exists (fun (k,_) -> k = "CONTROL" || k = "META")
+
+    let isPinchZoom = ev.ctrlKey && not modifierKeysDown
+    let isDiscreteShortcutZoom = (ev.ctrlKey || ev.metaKey) && modifierKeysDown
+
+    if isPinchZoom then
         ev.preventDefault()
-        let scaleDelta =
-            match ev.deltaMode with
-            | 1.0 -> ev.deltaY * 16.0
-            | 2.0 -> ev.deltaY * 800.0
-            | _ -> ev.deltaY
+        zoomWheelAccumulator <- 0.0
+
+        let zoomFactor = exp (-normalizedWheelDelta ev * Sheet.Constants.pinchZoomSensitivity)
+
+        if abs (zoomFactor - 1.0) > 0.0001 then
+            dispatch <| PreciseZoom zoomFactor
+    elif isDiscreteShortcutZoom then
+        ev.preventDefault()
+        let scaleDelta = normalizedWheelDelta ev
 
         let previousAccumulator = zoomWheelAccumulator
         let nextAccumulator =
@@ -138,7 +153,7 @@ let displaySvgWithZoom
               match not firstView, scrollOpt with
                 | true, Some scroll ->putScrollProps scroll |> ignore
                 | _ -> ()
-              OnWheel (fun ev -> wheelUpdate ev dispatch)
+              OnWheel (fun ev -> wheelUpdate ev model dispatch)
         ]
     div (scrollAttrL @  attrs)
         [

@@ -306,6 +306,23 @@ let update (msg : Msg) (issieModel : ModelType.Model): ModelType.Model*Cmd<Model
             sheetCmd (KeepZoomCentered oldScreenCentre)
         | None -> model, Cmd.none
 
+    | PreciseZoom zoomFactor ->
+        let oldScreenCentre = getVisibleScreenCentre model
+        let unclampedZoom = model.Zoom * zoomFactor
+        let newZoom =
+            if zoomFactor >= 1.0 then
+                min Constants.maxMagnification unclampedZoom
+            else
+                match getScreenEdgeCoords model with
+                | Some edge ->
+                    let minXZoom = (edge.Right - edge.Left) / model.CanvasSize
+                    let minYZoom = (edge.Top - edge.Bottom) / model.CanvasSize
+                    List.max [unclampedZoom; minXZoom; minYZoom]
+                | None -> model.Zoom
+
+        { model with Zoom = newZoom },
+        sheetCmd (KeepZoomCentered oldScreenCentre)
+
     | KeepZoomCentered oldScreenCentre ->
         let canvas = document.getElementById "Canvas"
         let newScreenCentre = getVisibleScreenCentre model
