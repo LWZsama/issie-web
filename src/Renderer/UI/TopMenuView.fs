@@ -6,6 +6,7 @@
 
 module TopMenuView
 open System
+open Fable.Core
 open EEExtensions
 
 open Fable.React
@@ -32,6 +33,195 @@ open Fulma.Extensions.Wikiki
 
 open Fulma
 open Fulma.Color
+
+type private HashNoticeKind =
+    | HashSuccess
+    | HashWarning
+    | HashError
+
+type private HashNotice =
+    { Kind: HashNoticeKind
+      Line1: string
+      Line2: string }
+
+type private HashDemoRequest =
+    { DemoId: int
+      DemoBasename: string
+      DemoDisplayName: string
+      InitRamOverride: string option
+      Notice: HashNotice }
+
+type private HashLaunchRequest =
+    | NoHashAction
+    | ShowHashNotice of HashNotice
+    | LoadHashDemo of HashDemoRequest
+
+[<Emit("window.location.hash || ''")>]
+let private getLocationHash () : string = jsNative
+
+[<Emit("if (window.location.hash) { history.replaceState(null, '', window.location.pathname + window.location.search); }")>]
+let private clearLocationHash () : unit = jsNative
+
+let private hashSuccessHint = "Go to Simulations and try running it!"
+let private hashCodePreviewLimit = 16
+
+let private makeHashNotice kind line1 line2 =
+    { Kind = kind
+      Line1 = line1
+      Line2 = line2 }
+
+let private showHashNotice dispatch notice =
+    let color =
+        match notice.Kind with
+        | HashSuccess -> Color.IsSuccess
+        | HashWarning -> IsWarning
+        | HashError -> IsDanger
+
+    dispatch <| SetFilesNotification (fun dispatch' ->
+        let close _ = dispatch' CloseFilesNotification
+        Notification.notification [
+            Notification.Color color
+            Notification.Props [ notificationStyle ]
+        ] [
+            Delete.delete [ Delete.OnClick close ] []
+            str notice.Line1
+            br []
+            str notice.Line2
+        ])
+
+let private tryGetHashValue (key: string) (hash: string) =
+    hash.Trim().TrimStart('#').Split('&', StringSplitOptions.RemoveEmptyEntries)
+    |> Array.tryPick (fun segment ->
+        let index = segment.IndexOf "="
+        if index <= 0 then
+            None
+        else
+            let rawKey = segment[0..index - 1]
+            let rawValue = segment[index + 1..]
+            if String.Equals(rawKey, key, StringComparison.OrdinalIgnoreCase) then
+                Some (Uri.UnescapeDataString rawValue)
+            else
+                None)
+
+let private tryGetDemoInfo demoId =
+    match demoId with
+    | 1 -> Some ("1fulladder", "fulladder")
+    | 2 -> Some ("2adder (4-bit)", "adder (4-bit)")
+    | 3 -> Some ("3cpu", "cpu")
+    | 4 -> Some ("4registerFile", "registerFile")
+    | 5 -> Some ("5eratosthenes", "eratosthenes")
+    | 6 -> Some ("6pipeline", "pipeline")
+    | 7 -> Some ("7interupt", "interupt")
+    | _ -> None
+
+let private supportsHashCode demoId =
+    match demoId with
+    | 3 | 6 | 7 -> true
+    | _ -> false
+
+let private isHexString (value: string) =
+    value
+    |> Seq.forall (fun ch ->
+        Char.IsDigit ch
+        || (let lower = Char.ToLowerInvariant ch
+            lower >= 'a' && lower <= 'f'))
+
+let private truncateHashCodeForMessage (code: string) =
+    let normalized = code.Trim().ToLowerInvariant()
+    if normalized.Length <= hashCodePreviewLimit then
+        normalized
+    else
+        normalized[0..hashCodePreviewLimit - 1] + "..."
+
+let private formatHashCodeAsInitRam (hexCode: string) =
+    let normalized = hexCode.Trim().ToLowerInvariant()
+    if String.IsNullOrWhiteSpace normalized then
+        None
+    elif normalized.Length % 4 <> 0 || not (isHexString normalized) then
+        None
+    else
+        let words = normalized |> Seq.chunkBySize 4 |> Seq.map String |> Seq.toArray
+        let addressWidth = max 2 ((max 0 (words.Length - 1)).ToString("x").Length)
+        words
+        |> Array.mapi (fun index word ->
+            let address = index.ToString("x").PadLeft(addressWidth, '0')
+            $"0x{address}\t0x{word}")
+        |> String.concat "\n"
+        |> Some
+
+let private tryParseHashDemoRequest () =
+    let hash = getLocationHash ()
+    clearLocationHash ()
+
+    match tryGetHashValue "demo" hash with
+    | None -> NoHashAction
+    | Some demoValue ->
+        match Int32.TryParse demoValue with
+        | false, _ ->
+            ShowHashNotice <|
+                makeHashNotice
+                    HashError
+                    $"The hash demo value '{demoValue}' is invalid and has been ignored."
+                    "Please use demo 1 to 7."
+        | true, demoId ->
+            match tryGetDemoInfo demoId with
+            | None ->
+                ShowHashNotice <|
+                    makeHashNotice
+                        HashError
+                        $"demo {demoId} is invalid and has been ignored."
+                        "Please use demo 1 to 7."
+            | Some (demoBasename, demoDisplayName) ->
+                let demoLabel = $"demo {demoId} {demoDisplayName}"
+                match tryGetHashValue "code" hash with
+                | None
+                | Some "" ->
+                    LoadHashDemo {
+                        DemoId = demoId
+                        DemoBasename = demoBasename
+                        DemoDisplayName = demoDisplayName
+                        InitRamOverride = None
+                        Notice = makeHashNotice HashSuccess $"{demoLabel} is successfully loaded." hashSuccessHint
+                    }
+                | Some rawCode when not (supportsHashCode demoId) ->
+                    let preview = truncateHashCodeForMessage rawCode
+                    LoadHashDemo {
+                        DemoId = demoId
+                        DemoBasename = demoBasename
+                        DemoDisplayName = demoDisplayName
+                        InitRamOverride = None
+                        Notice =
+                            makeHashNotice
+                                HashWarning
+                                $"{demoLabel} is successfully loaded, but code '{preview}' is ignored. Machine code is only supported in demo 3, 6 and 7."
+                                hashSuccessHint
+                    }
+                | Some rawCode ->
+                    let preview = truncateHashCodeForMessage rawCode
+                    match formatHashCodeAsInitRam rawCode with
+                    | Some initRamOverride ->
+                        LoadHashDemo {
+                            DemoId = demoId
+                            DemoBasename = demoBasename
+                            DemoDisplayName = demoDisplayName
+                            InitRamOverride = Some initRamOverride
+                            Notice = makeHashNotice HashSuccess $"{demoLabel} with code '{preview}' is successfully loaded." hashSuccessHint
+                        }
+                    | None ->
+                        LoadHashDemo {
+                            DemoId = demoId
+                            DemoBasename = demoBasename
+                            DemoDisplayName = demoDisplayName
+                            InitRamOverride = None
+                            Notice =
+                                makeHashNotice
+                                    HashWarning
+                                    $"{demoLabel} is successfully loaded, but code '{preview}' is invalid and has been ignored. Machine code must be a hexadecimal string whose length is a multiple of 4."
+                                    hashSuccessHint
+                        }
+
+
+
 
 
 /// Save the Verilog file currently open, return the new sheet's Loadedcomponent if this has changed.
@@ -289,7 +479,7 @@ let addFileToProject model dispatch =
 
 
 /// load demo project into Issie executables
-let loadDemoProject model dispatch basename =
+let private loadDemoProjectWithInitRamOverride model dispatch basename (initRamOverride: string option) (notice: HashNotice option) =
     warnAppWidth dispatch (fun _ ->
         let isMac = Node.Api.``process``.platform = Node.Base.Darwin
         let homeDir = if isMac then pathJoin [|FilesIO.staticDir(); ".."; ".."|] else "."
@@ -298,17 +488,23 @@ let loadDemoProject model dispatch basename =
         let sourceDir = FilesIO.staticDir() + "/demos/" + basename
         printf "%s" $"loading demo {sourceDir} into {newDir}"
 
+        let writeInitOverride () =
+            initRamOverride
+            |> Option.iter (fun ramText ->
+                writeFile (pathJoin [|newDir; "init.ram"|]) ramText
+                |> displayAlertOnError dispatch)
+
+        let showNotice () =
+            notice
+            |> Option.iter (showHashNotice dispatch)
+
         clearBrowserStoredPath newDir
-        ensureDirectory (homeDir + "/demos/")
-        ensureDirectory newDir
+        mkdir (homeDir + "/demos/")
+        mkdir newDir
 
-        dispatch EndSimulation // End any running simulation.
-        dispatch <| TruthTableMsg CloseTruthTable // Close any open Truth Table.
+        dispatch EndSimulation
+        dispatch <| TruthTableMsg CloseTruthTable
         dispatch EndWaveSim
-
-        //let projectFile = baseName newDir + ".dprj"
-        //writeFile (pathJoin [| newDir; projectFile |]) ""
-        //|> displayAlertOnError dispatch
 
         let openCopiedDemo () =
             let files = readFilesFromDirectory sourceDir
@@ -316,25 +512,40 @@ let loadDemoProject model dispatch basename =
             let isNotDir path =
                 hasExtn ".dgm" path || hasExtn ".txt" path || hasExtn ".ram" path
 
-            // copy over files from source path to new path
             files
             |> List.filter isNotDir
             |> List.iter (fun basename ->
                 let newPath = pathJoin [|newDir; basename|]
                 copyFile (pathJoin [|sourceDir; basename|]) newPath)
 
+            writeInitOverride ()
+            showNotice ()
             openDemoProjectFromPath newDir model dispatch
 
         loadBundledDemoAsync sourceDir newDir
         |> Promise.eitherEnd
             (fun loadedFromBundle ->
                 if loadedFromBundle then
+                    writeInitOverride ()
+                    showNotice ()
                     openDemoProjectFromPath newDir model dispatch
                 else
                     openCopiedDemo ())
             (fun _ -> openCopiedDemo ())
-        
     )
+
+let loadDemoProject model dispatch basename =
+    loadDemoProjectWithInitRamOverride model dispatch basename None None
+
+let loadDemoProjectFromHash model dispatch =
+    match model.CurrentProj, tryParseHashDemoRequest () with
+    | None, LoadHashDemo request ->
+        loadDemoProjectWithInitRamOverride model dispatch request.DemoBasename request.InitRamOverride (Some request.Notice)
+    | None, ShowHashNotice notice ->
+        showHashNotice dispatch notice
+    | _ -> ()
+
+
 
 
 
@@ -784,6 +995,12 @@ let viewTopMenu model dispatch =
                             // this is a bit of a hack - but much easier than matching styles                                 
                             Text.div [Props [Style [PaddingRight "7000px"]]] [str ""]
                         ] ]]]
+
+
+
+
+
+
 
 
 

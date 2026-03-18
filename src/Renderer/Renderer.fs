@@ -406,6 +406,7 @@ let attachMenusAndKeyShortcuts dispatch =
         let userAppDir = getUserAppDir()
         dispatch <| ReadUserData userAppDir
         clearSessionSnapshot ()
+        dispatch <| Msg.ExecFuncInMessage(TopMenuView.loadDemoProjectFromHash, dispatch)
 
 
     Cmd.ofSub sub
@@ -591,6 +592,9 @@ Program.mkProgram init update view'
 |> Program.withSubscription attachMenusAndKeyShortcuts
 |> Program.withSubscription keyPressListener
 |> Program.run
+
+
+
 
 
 
