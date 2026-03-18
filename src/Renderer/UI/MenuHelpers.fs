@@ -1012,7 +1012,7 @@ let openFileInProject' saveCurrent name project (model:Model) dispatch =
            $"Warning: Issie could not find the file '{name}.dgm' in the project. Did you delete a file manually?"
         |> dispatch
         dispatch FinishUICmd
-    | Some {Form=Some (ProtectedTopLevel | ProtectedSubSheet)} when debugLevel = 0 ->
+    | Some {Form=Some ProtectedTopLevel} when debugLevel = 0 ->
         SetFilesNotification <| errorFilesNotification 
             $"Warning: The sheet '{name}' is protected and cannot be opened."
         |> dispatch

@@ -405,7 +405,7 @@ let attachMenusAndKeyShortcuts dispatch =
         attachExitHandler dispatch
         let userAppDir = getUserAppDir()
         dispatch <| ReadUserData userAppDir
-        dispatch <| ExecFuncInMessage(restoreSessionSnapshot, dispatch)
+        clearSessionSnapshot ()
 
 
     Cmd.ofSub sub
@@ -591,6 +591,7 @@ Program.mkProgram init update view'
 |> Program.withSubscription attachMenusAndKeyShortcuts
 |> Program.withSubscription keyPressListener
 |> Program.run
+
 
 
 

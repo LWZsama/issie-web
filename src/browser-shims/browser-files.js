@@ -14,9 +14,6 @@ const rootRegistry = new Map();
 const fileHandleRegistry = new Map();
 const pendingSaveRegistry = new Map();
 const sessionStorageKey = "__issie_browser_session__";
-let sessionSaveTimer = null;
-let bufferedSessionSnapshot;
-let sessionRestoreInProgress = false;
 
 function normalizePath(inputPath) {
   const raw = `${inputPath || ""}`.replace(/\\/g, "/");
@@ -68,7 +65,7 @@ function getStoredProjectRoot(path) {
   const normalized = normalizePath(path);
   const parts = normalized.split("/").filter(Boolean);
 
-  if (parts.length >= 2 && (parts[0] === "browser-projects" || parts[0] === "browser-imports")) {
+  if (parts.length >= 2 && (parts[0] === "browser-projects" || parts[0] === "browser-imports" || parts[0] === "demos")) {
     return `/${parts[0]}/${parts[1]}`;
   }
 
@@ -249,24 +246,40 @@ function clearStoredData(options = {}) {
 
   if (options.clearSession !== false) {
     localStorage.removeItem(sessionStorageKey);
-    bufferedSessionSnapshot = null;
   }
 }
 
+function resetBrowserStorageOnStartup() {
+  const keysToRemove = [];
+
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+
+    if (!key) {
+      continue;
+    }
+
+    if (key.startsWith(filePrefix) || key.startsWith(dirPrefix) || key === sessionStorageKey) {
+      keysToRemove.push(key);
+    }
+  }
+
+  for (const key of keysToRemove) {
+    localStorage.removeItem(key);
+  }
+
+  rootRegistry.clear();
+  fileHandleRegistry.clear();
+  pendingSaveRegistry.clear();
+}
+
+function clearStoredPath(path) {
+  const normalizedPath = normalizePath(path);
+  const rootPath = getStoredProjectRoot(normalizedPath) || normalizedPath;
+  clearVirtualRoot(rootPath);
+}
+
 async function cleanupStorageIfNeeded(keepRoots = []) {
-  if (!navigator.storage || typeof navigator.storage.estimate !== "function") {
-    return false;
-  }
-
-  const estimate = await navigator.storage.estimate();
-  const usage = Number(estimate.usage || 0);
-  const quota = Number(estimate.quota || 0);
-
-  if (!quota || usage / quota < 0.85) {
-    return false;
-  }
-
-  clearStoredData({ keepRoots, clearSession: false });
   return true;
 }
 
@@ -655,6 +668,28 @@ function chooseFilesWithInput(accept, multiple) {
   });
 }
 
+async function loadBundledDemo(sourcePath, targetPath) {
+  const response = await fetch(`${sourcePath.replace(/\\/g, "/")}/demo.json`, { cache: "force-cache" });
+
+  if (!response.ok) {
+    return false;
+  }
+
+  const bundle = await response.json();
+  if (!bundle || typeof bundle !== "object" || !bundle.files || typeof bundle.files !== "object") {
+    return false;
+  }
+
+  clearStoredPath(targetPath);
+  ensureDirectory(targetPath);
+
+  for (const [fileName, fileContents] of Object.entries(bundle.files)) {
+    setVirtualFile(joinPath(targetPath, fileName), `${fileContents ?? ""}`);
+  }
+
+  return true;
+}
+
 async function createProjectDirectory() {
   try {
     if (typeof window.showDirectoryPicker === "function") {
@@ -833,74 +868,38 @@ async function openSheetFiles() {
 }
 
 function commitSessionSnapshot(serializedSnapshot) {
-  if (!serializedSnapshot) {
-    localStorage.removeItem(sessionStorageKey);
-    return;
-  }
-
-  setStorageItem(
-    sessionStorageKey,
-    serializedSnapshot,
-    keepRootsFromSessionSnapshot(serializedSnapshot),
-  );
+  localStorage.removeItem(sessionStorageKey);
 }
 
 function queueSessionSnapshotCommit() {
-  if (sessionRestoreInProgress) {
-    return;
-  }
-
-  if (sessionSaveTimer) {
-    clearTimeout(sessionSaveTimer);
-  }
-
-  sessionSaveTimer = setTimeout(() => {
-    sessionSaveTimer = null;
-    commitSessionSnapshot(bufferedSessionSnapshot);
-  }, 150);
+  commitSessionSnapshot(null);
 }
 
 function saveSessionSnapshot(serializedSnapshot) {
-  bufferedSessionSnapshot = serializedSnapshot || null;
-  queueSessionSnapshotCommit();
+  commitSessionSnapshot(null);
 }
 
 function loadSessionSnapshot() {
-  return localStorage.getItem(sessionStorageKey);
+  return null;
 }
 
 function clearSessionSnapshot() {
-  bufferedSessionSnapshot = null;
-
-  if (sessionSaveTimer) {
-    clearTimeout(sessionSaveTimer);
-    sessionSaveTimer = null;
-  }
-
   commitSessionSnapshot(null);
 }
 
 function beginSessionRestore() {
-  sessionRestoreInProgress = true;
-
-  if (sessionSaveTimer) {
-    clearTimeout(sessionSaveTimer);
-    sessionSaveTimer = null;
-  }
+  commitSessionSnapshot(null);
 }
 
 function endSessionRestore() {
-  sessionRestoreInProgress = false;
-
-  if (typeof bufferedSessionSnapshot !== "undefined") {
-    queueSessionSnapshotCommit();
-  }
+  commitSessionSnapshot(null);
 }
 
 const api = {
   basename,
   beginSessionRestore,
   cleanupStorageIfNeeded,
+  clearStoredPath,
   clearSessionSnapshot,
   clearStoredData,
   createProjectDirectory,
@@ -911,6 +910,7 @@ const api = {
   getVirtualFile,
   joinPath,
   loadSessionSnapshot,
+  loadBundledDemo,
   normalizePath,
   openProjectDirectory,
   openSheetFiles,
@@ -924,10 +924,14 @@ const api = {
 };
 
 if (typeof window !== "undefined") {
+  resetBrowserStorageOnStartup();
   window.__issieBrowserFiles = api;
 }
 
 module.exports = api;
+
+
+
 
 
 

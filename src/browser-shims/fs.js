@@ -48,6 +48,10 @@ function httpBasename(filePath) {
   return lastSlash < 0 ? normalized : normalized.slice(lastSlash + 1);
 }
 
+function looksLikeDirectory(targetPath) {
+  return !httpBasename(targetPath).includes(".");
+}
+
 function readHttpFile(filePath) {
   const xhr = new XMLHttpRequest();
   xhr.open("GET", toHttpPath(filePath), false);
@@ -108,6 +112,8 @@ function listEntries(folderPath) {
   const normalizedFolder = normalizePath(folderPath);
   const prefix = normalizedFolder === "/" ? "/" : `${normalizedFolder}/`;
   const entries = new Set();
+  const hasLocalDirectory =
+    normalizedFolder === "/" || localStorage.getItem(dirKey(normalizedFolder)) !== null;
 
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
@@ -136,6 +142,10 @@ function listEntries(folderPath) {
     return Array.from(entries);
   }
 
+  if (hasLocalDirectory) {
+    return [];
+  }
+
   return readHttpDirectoryManifest(folderPath) || [];
 }
 
@@ -151,13 +161,13 @@ module.exports = {
       return true;
     }
 
+    if (looksLikeDirectory(targetPath)) {
+      return readHttpDirectoryManifest(targetPath) !== null;
+    }
+
     const httpEntry = hasHttpEntry(targetPath);
     if (httpEntry !== null) {
       return httpEntry;
-    }
-
-    if (readHttpDirectoryManifest(targetPath)) {
-      return true;
     }
 
     return tryReadHttpFile(targetPath) !== null;
@@ -207,3 +217,5 @@ module.exports = {
     browserFiles.setVirtualFile(normalized, data);
   },
 };
+
+

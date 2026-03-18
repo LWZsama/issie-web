@@ -298,11 +298,9 @@ let loadDemoProject model dispatch basename =
         let sourceDir = FilesIO.staticDir() + "/demos/" + basename
         printf "%s" $"loading demo {sourceDir} into {newDir}"
 
+        clearBrowserStoredPath newDir
         ensureDirectory (homeDir + "/demos/")
         ensureDirectory newDir
-
-        readFilesFromDirectory newDir
-        |> List.iter (fun path -> unlink <| pathJoin[|newDir; path|])
 
         dispatch EndSimulation // End any running simulation.
         dispatch <| TruthTableMsg CloseTruthTable // Close any open Truth Table.
@@ -312,19 +310,29 @@ let loadDemoProject model dispatch basename =
         //writeFile (pathJoin [| newDir; projectFile |]) ""
         //|> displayAlertOnError dispatch
 
-        let files = readFilesFromDirectory sourceDir
+        let openCopiedDemo () =
+            let files = readFilesFromDirectory sourceDir
 
-        let isNotDir path =
-            hasExtn ".dgm" path || hasExtn ".txt" path || hasExtn ".ram" path
+            let isNotDir path =
+                hasExtn ".dgm" path || hasExtn ".txt" path || hasExtn ".ram" path
 
-        // copy over files from source path to new path
-        files
-        |> List.filter isNotDir
-        |> List.iter (fun basename ->
-            let newPath = pathJoin [|newDir; basename|]
-            copyFile (pathJoin [|sourceDir; basename|]) newPath)
+            // copy over files from source path to new path
+            files
+            |> List.filter isNotDir
+            |> List.iter (fun basename ->
+                let newPath = pathJoin [|newDir; basename|]
+                copyFile (pathJoin [|sourceDir; basename|]) newPath)
 
-        openDemoProjectFromPath newDir model dispatch
+            openDemoProjectFromPath newDir model dispatch
+
+        loadBundledDemoAsync sourceDir newDir
+        |> Promise.eitherEnd
+            (fun loadedFromBundle ->
+                if loadedFromBundle then
+                    openDemoProjectFromPath newDir model dispatch
+                else
+                    openCopiedDemo ())
+            (fun _ -> openCopiedDemo ())
         
     )
 
@@ -369,6 +377,14 @@ let showDemoProjects model dispatch (demosInfo : (string * int * int) list) =
                         | "eratosthenes" ->
                             div [] [
                                 str "The EEP1 CPU running a program to calculate prime numbers"
+                            ]
+                        | "pipeline" ->
+                            div [] [
+                                str "The EEP1 CPU with pipeline designed in Year 1 labs"
+                            ]
+                        | "interupt" ->
+                            div [] [
+                                str "The EEP1 CPU with interupt designed in Year 1 labs"
                             ]
                         | _ -> str "Information about other design"
 
@@ -768,3 +784,7 @@ let viewTopMenu model dispatch =
                             // this is a bit of a hack - but much easier than matching styles                                 
                             Text.div [Props [Style [PaddingRight "7000px"]]] [str ""]
                         ] ]]]
+
+
+
+

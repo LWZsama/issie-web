@@ -190,7 +190,7 @@ const ipcRenderer = {
   },
   sendSync(channel) {
     if (channel === "get-user-data") {
-      return "/user";
+      return "";
     }
 
     return undefined;
@@ -223,3 +223,4 @@ module.exports = {
   shell,
   webFrame,
 };
+

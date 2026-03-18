@@ -368,6 +368,12 @@ let private createProjectDirectoryJs () : JS.Promise<obj> = jsNative
 [<Emit("window.__issieBrowserFiles.persistFile($0)")>]
 let private persistFileJs (_filePath: string) : JS.Promise<obj> = jsNative
 
+[<Emit("window.__issieBrowserFiles.clearStoredPath($0)")>]
+let private clearStoredPathJs (_path: string) : unit = jsNative
+
+[<Emit("window.__issieBrowserFiles.loadBundledDemo($0, $1)")>]
+let private loadBundledDemoJs (_sourcePath: string) (_targetPath: string) : JS.Promise<obj> = jsNative
+
 let askForExistingProjectPathAsync (_defaultPath: string option) : JS.Promise<string option> =
     promise {
         let! result = openProjectDirectoryJs ()
@@ -404,6 +410,15 @@ let persistFileToExternalStorageAsync (filePath: string) : JS.Promise<unit> =
         return ()
     }
 
+let clearBrowserStoredPath (path: string) : unit =
+    clearStoredPathJs path
+
+
+let loadBundledDemoAsync (sourcePath: string) (targetPath: string) : JS.Promise<bool> =
+    promise {
+        let! result = loadBundledDemoJs sourcePath targetPath
+        return not (isNullOrUndefined result) && unbox<bool> result
+    }
 let rec askForNewProjectPath (defaultPath:string option) : string option =
     let options = createEmpty<SaveDialogSyncOptions>
     options.filters <- Some (makeFileFilters "Issie project" "" |> ResizeArray)
@@ -734,6 +749,10 @@ type LoadStatus =
     | OkComp of LoadedComponent
     | OkAuto of LoadedComponent
 
+let private isDemoProjectPath (path: string) =
+    path.Replace("\\", "/").Contains("/demos/")
+
+
     
 /// load all files in folderpath. Return Ok list of LoadStatus or a single Error.
 let loadAllComponentFiles (folderPath:string)  = 
@@ -757,7 +776,11 @@ let loadAllComponentFiles (folderPath:string)  =
                     let filePath = pathJoin [| folderPath; fileName |]
                     printfn $"loading {fileName}"
                     let ldComp =  filePath |> tryLoadComponentFromPath
-                    let autoComp = filePath + "auto" |> tryLoadComponentFromPath
+                    let autoComp =
+                        if isDemoProjectPath folderPath then
+                            Error "Demo autosave disabled"
+                        else
+                            filePath + "auto" |> tryLoadComponentFromPath
                     printfn $"{fileName} Loaded"
                     match (ldComp, autoComp) with
                     | Ok ldComp, Ok autoComp when ldComp.TimeStamp < autoComp.TimeStamp ->
@@ -810,6 +833,9 @@ let openWriteDialogAndWriteMemory mem path =
         writeMemDefns fpath' mem |> ignore
         Some fpath'
     
+
+
+
 
 
 

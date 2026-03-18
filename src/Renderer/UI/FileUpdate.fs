@@ -108,7 +108,16 @@ let private openProject model dispatch =
             (fun err -> electronRemote.dialog.showErrorBox("Open project failed", err.Message)))
 
 /// Close current project, if any.
+
+let private isDemoProjectPath (path: string) =
+    path.Replace("\\", "/").Contains("/demos/")
+
 let forceCloseProject (model:Model) dispatch =
+    model.CurrentProj
+    |> Option.map (fun project -> project.ProjectPath)
+    |> Option.filter isDemoProjectPath
+    |> Option.iter clearBrowserStoredPath
+
     clearSessionSnapshot ()
     dispatch (StartUICmd CloseProject)
     let sheetDispatch sMsg = dispatch (Sheet sMsg) 
@@ -166,6 +175,8 @@ let fileCommand (fc: FileCommandType) (dispatch: (Msg->Unit)) (model: Model) =
         model, Cmd.none
         
     
+
+
 
 
 

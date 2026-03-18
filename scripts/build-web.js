@@ -73,10 +73,44 @@ async function writeDirectoryManifest(directoryPath) {
   }
 }
 
+async function writeDemoBundle(demoDirectoryPath) {
+  const bundleExtensions = new Set([".dgm", ".ram", ".txt"]);
+  const entries = await fsExtra.readdir(demoDirectoryPath, { withFileTypes: true });
+  const files = {};
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+
+    const extension = path.extname(entry.name).toLowerCase();
+    if (!bundleExtensions.has(extension)) {
+      continue;
+    }
+
+    const filePath = path.join(demoDirectoryPath, entry.name);
+    files[entry.name] = await fsExtra.readFile(filePath, "utf8");
+  }
+
+  await fsExtra.writeJson(
+    path.join(demoDirectoryPath, "demo.json"),
+    { files },
+    { spaces: 2 },
+  );
+}
+
 async function prepareDemoManifests() {
   const demosDir = path.join(buildDir, "static", "demos");
 
   if (await fsExtra.pathExists(demosDir)) {
+    const entries = await fsExtra.readdir(demosDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        await writeDemoBundle(path.join(demosDir, entry.name));
+      }
+    }
+
     await writeDirectoryManifest(demosDir);
   }
 }
