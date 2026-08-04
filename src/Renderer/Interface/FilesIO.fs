@@ -604,6 +604,69 @@ let askForExistingSheetPaths (defaultPath: string option) : string list option =
         | paths -> Some <| paths
     )
 
+[<Emit("window.__issieBrowserFiles.openProjectDirectory()")>]
+let private openProjectDirectoryJs () : JS.Promise<obj> = jsNative
+
+[<Emit("window.__issieBrowserFiles.openSheetFiles()")>]
+let private openSheetFilesJs () : JS.Promise<obj> = jsNative
+
+[<Emit("window.__issieBrowserFiles.createProjectDirectory()")>]
+let private createProjectDirectoryJs () : JS.Promise<obj> = jsNative
+
+[<Emit("window.__issieBrowserFiles.persistFile($0)")>]
+let private persistFileJs (_filePath: string) : JS.Promise<obj> = jsNative
+
+[<Emit("window.__issieBrowserFiles.clearStoredPath($0)")>]
+let private clearStoredPathJs (_path: string) : unit = jsNative
+
+[<Emit("window.__issieBrowserFiles.loadBundledDemo($0, $1)")>]
+let private loadBundledDemoJs (_sourcePath: string) (_targetPath: string) : JS.Promise<obj> = jsNative
+
+let askForExistingProjectPathAsync (_defaultPath: string option) : JS.Promise<string option> =
+    promise {
+        let! result = openProjectDirectoryJs ()
+        return
+            if isNullOrUndefined result then
+                None
+            else
+                Some (unbox<string> result)
+    }
+
+let askForExistingSheetPathsAsync (_defaultPath: string option) : JS.Promise<string list option> =
+    promise {
+        let! result = openSheetFilesJs ()
+        return
+            if isNullOrUndefined result then
+                None
+            else
+                Some (unbox<string array> result |> Array.toList)
+    }
+
+let askForNewProjectPathAsync (_defaultPath: string option) : JS.Promise<string option> =
+    promise {
+        let! result = createProjectDirectoryJs ()
+        return
+            if isNullOrUndefined result then
+                None
+            else
+                Some (unbox<string> result)
+    }
+
+let persistFileToExternalStorageAsync (filePath: string) : JS.Promise<unit> =
+    promise {
+        let! _ = persistFileJs filePath
+        return ()
+    }
+
+let clearBrowserStoredPath (path: string) : unit =
+    clearStoredPathJs path
+
+let loadBundledDemoAsync (sourcePath: string) (targetPath: string) : JS.Promise<bool> =
+    promise {
+        let! result = loadBundledDemoJs sourcePath targetPath
+        return not (isNullOrUndefined result) && unbox<bool> result
+    }
+
 
 
 // askForNewProjectPath, a native SAVE dialog that asked the user to save a file which was really
@@ -955,7 +1018,10 @@ type LoadStatus =
     | OkComp of LoadedComponent
     | OkAuto of LoadedComponent
 
-    
+let private isDemoProjectPath (path: string) =
+    path.Replace("\\", "/").Contains("/demos/")
+
+
 /// load all files in folderpath. Return Ok list of LoadStatus or a single Error.
 let loadAllComponentFiles (folderPath:string)  = 
     let x = 
@@ -977,7 +1043,11 @@ let loadAllComponentFiles (folderPath:string)  =
                 else 
                     let filePath = pathJoin [| folderPath; fileName |]
                     let ldComp =  filePath |> tryLoadComponentFromPath
-                    let autoComp = filePath + "auto" |> tryLoadComponentFromPath
+                    let autoComp =
+                        if isDemoProjectPath folderPath then
+                            Error "Demo autosave disabled"
+                        else
+                            filePath + "auto" |> tryLoadComponentFromPath
                     Log.dbg Log.Files $"loaded {fileName}"
                     match (ldComp, autoComp) with
                     | Ok ldComp, Ok autoComp when ldComp.TimeStamp < autoComp.TimeStamp ->
@@ -1015,6 +1085,7 @@ let saveAllProjectFilesFromLoadedComponentsToDisk (proj: Project) =
         let waveInfo = ldc.WaveInfo
         let sheetInfo: SheetInfo = {Form=ldc.Form;Description=ldc.Description; ParameterDefinitions=ldc.LCParameterSlots; IsTopSheet = Some ldc.IsTopSheet}
         saveStateToFile proj.ProjectPath name (state,waveInfo,Some sheetInfo) |> ignore
+        persistFileToExternalStorageAsync (pathJoin [| proj.ProjectPath; name + ".dgm" |]) |> Promise.start
         removeFileWithExtn ".dgmauto" proj.ProjectPath name)
 
 let openWriteDialogAndWriteMemory mem path =
