@@ -31,9 +31,6 @@ let mutable uiStartTime: float = 0.
 // only to decide whether to swallow the space bar. KeyBindings derives the real context from the
 // model in the same place, and space is now an ordinary row in the shortcut table.
 
-    
-
-
 //----------------------------------------------------------------------------------------------------------------//
 //-----------------------------------------------UPDATE-----------------------------------------------------------//
 //----------------------------------------------------------------------------------------------------------------//
@@ -656,7 +653,7 @@ let update (msg : Msg) oldModel =
 
     | ContextMenuAction e ->
         let menuType = getContextMenu e model
-        renderer.ipcRenderer.send("show-context-menu", [|unbox menuType|])
+        renderer.ipcRenderer.send("show-context-menu", [| unbox menuType; unbox e.clientX; unbox e.clientY |])
         model, Cmd.none
 
     | ContextMenuItemClick(menuType, item, dispatch) ->
