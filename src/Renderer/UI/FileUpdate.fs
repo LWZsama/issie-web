@@ -61,46 +61,63 @@ let doActionWithSaveFileDialog (name: string) (nextAction: Msg)  model dispatch 
 /// Create a new project.
 let rec private newProject model dispatch  =
     warnAppWidth dispatch (fun _ ->
-    match askForNewProjectPath model.UserData.LastUsedDirectory with
-    | None -> () // User gave no path.
-    | Some path ->
-        match tryCreateFolder path with
-        | Error err ->
-            JSHelpers.log err
-            // Show error in a dialog box and then re-open the project creation dialog
-            electronRemote.dialog.showErrorBox("Invalid Project Name", err)
-            newProject model dispatch
-        | Ok _ ->
-            dispatch EndSimulation // End any running simulation.
-            dispatch <| TruthTableMsg CloseTruthTable // Close any open Truth Table.
-            dispatch EndWaveSim
-            // Create empty placeholder projectFile.
-            let projectFile = baseName path + ".dprj"
-            writeFile (pathJoin [| path; projectFile |]) ""
-            |> Notifications.displayAlertOnError dispatch
-            // Create empty initial diagram file.
-            let initialComponent = createEmptyComponentAndFile path "main"
-            dispatch <| SetUserData {model.UserData with LastUsedDirectory = Some path}
-            setupProjectFromComponents false "main" [initialComponent] model dispatch)
+        askForNewProjectPathAsync model.UserData.LastUsedDirectory
+        |> Promise.eitherEnd
+            (function
+            | None -> ()
+            | Some path ->
+                match tryCreateFolder path with
+                | Error err ->
+                    JSHelpers.log err
+                    electronRemote.dialog.showErrorBox("Invalid Project Name", err)
+                    newProject model dispatch
+                | Ok _ ->
+                    dispatch EndSimulation
+                    dispatch <| TruthTableMsg CloseTruthTable
+                    dispatch EndWaveSim
 
-    
+                    let projectFile = baseName path + ".dprj"
+                    let projectFilePath = pathJoin [| path; projectFile |]
+                    writeFile projectFilePath ""
+                    |> Notifications.displayAlertOnError dispatch
+
+                    let initialComponent = createEmptyComponentAndFile path "main"
+
+                    persistFileToExternalStorageAsync projectFilePath
+                    |> Promise.bind (fun _ -> persistFileToExternalStorageAsync initialComponent.FilePath)
+                    |> Promise.eitherEnd
+                        (fun _ ->
+                            dispatch <| SetUserData {model.UserData with LastUsedDirectory = Some path}
+                            setupProjectFromComponents false "main" [initialComponent] model dispatch)
+                        (fun err -> electronRemote.dialog.showErrorBox("Create project failed", err.Message)))
+            (fun err -> electronRemote.dialog.showErrorBox("Create project failed", err.Message)))
 
 /// open an existing project
 let private openProject model dispatch =
-    //trying to force the spinner to load earlier
-    //doesn't really work right now
-    warnAppWidth dispatch (fun _ -> 
-    dispatch (Sheet (SheetT.SetSpinner true))
-    let dirName =
-        match Option.map readFilesFromDirectory model.UserData.LastUsedDirectory with
-        | Some [] | None -> None
-        | _ -> model.UserData.LastUsedDirectory
-    match askForExistingProjectPath dirName with
-    | None -> () // User gave no path.
-    | Some path -> openProjectFromPath path model dispatch)
+    warnAppWidth dispatch (fun _ ->
+        let dirName =
+            match Option.map readFilesFromDirectory model.UserData.LastUsedDirectory with
+            | Some [] | None -> None
+            | _ -> model.UserData.LastUsedDirectory
+
+        askForExistingProjectPathAsync dirName
+        |> Promise.eitherEnd
+            (function
+            | None -> ()
+            | Some path -> openProjectFromPath path model dispatch)
+            (fun err -> electronRemote.dialog.showErrorBox("Open project failed", err.Message)))
 
 /// Close current project, if any.
+
+let private isDemoProjectPath (path: string) =
+    path.Replace("\\", "/").Contains("/demos/")
+
 let forceCloseProject (model:Model) dispatch =
+    model.CurrentProj
+    |> Option.map (fun project -> project.ProjectPath)
+    |> Option.filter isDemoProjectPath
+    |> Option.iter clearBrowserStoredPath
+
     dispatch (StartUICmd CloseProject)
     let sheetDispatch sMsg = dispatch (Sheet sMsg) 
     dispatch EndSimulation // End any running simulation.

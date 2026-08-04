@@ -985,22 +985,23 @@ let importSheet model dispatch =
 
         dispatch <| (Sheet (SheetT.SetSpinner false))
 
-        match askForExistingSheetPaths model.UserData.LastUsedDirectory with
-        | None -> () // User gave no path.
-        | Some paths ->
-            let sourceProjectDir = dirName paths[0]
+        askForExistingSheetPathsAsync model.UserData.LastUsedDirectory
+        |> Promise.eitherEnd
+            (function
+            | None -> ()
+            | Some paths ->
+                let sourceProjectDir = dirName paths[0]
 
-            // handle if sheets from current directory
-            paths
-            |> List.iter (fun path ->
-                match projectDir = sourceProjectDir with
-                | true ->
-                    renameSheetBeforeImportPopup path model dispatch
-                | false -> 
-                    match saveOpenFileToModel model with
-                      | Some {CurrentProj = Some p} ->
-                        dispatch <| SetProject p
-                      | _ -> ()
-                    importSheetPopup projectDir paths sourceProjectDir dispatch
-        )
+                paths
+                |> List.iter (fun path ->
+                    match projectDir = sourceProjectDir with
+                    | true ->
+                        renameSheetBeforeImportPopup path model dispatch
+                    | false -> 
+                        match saveOpenFileToModel model with
+                        | Some {CurrentProj = Some p} ->
+                            dispatch <| SetProject p
+                        | _ -> ()
+                        importSheetPopup projectDir paths sourceProjectDir dispatch))
+            (fun err -> JSHelpers.log err.Message)
 
