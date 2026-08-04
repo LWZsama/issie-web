@@ -1,0 +1,130 @@
+name: Sync upstream release
+
+on:
+  schedule:
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: upstream-release-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Sync latest upstream release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const upstreamOwner = "tomcl";
+            const upstreamRepo = "issie";
+            const deployWorkflow = "deploy-pages.yml";
+            const deployRef = context.ref.replace(/^refs\/heads\//, "");
+
+            if (!deployRef) {
+              throw new Error(`Unable to determine the deployment ref from ${context.ref}.`);
+            }
+
+            const upstreamRelease = (
+              await github.rest.repos.getLatestRelease({
+                owner: upstreamOwner,
+                repo: upstreamRepo,
+              })
+            ).data;
+
+            let existingRelease = null;
+            try {
+              existingRelease = (
+                await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: upstreamRelease.tag_name,
+                })
+              ).data;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            if (existingRelease) {
+              core.info(`Release ${upstreamRelease.tag_name} already exists; nothing to do.`);
+              return;
+            }
+
+            const dispatchStartedMs = Date.now() - 5 * 60 * 1000;
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: deployWorkflow,
+              ref: deployRef,
+              inputs: {
+                upstream_release_tag: upstreamRelease.tag_name,
+              },
+            });
+
+            let deploymentRun = null;
+            for (let attempt = 0; attempt < 60; attempt += 1) {
+              const runs = (
+                await github.rest.actions.listWorkflowRuns({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: deployWorkflow,
+                  event: "workflow_dispatch",
+                  branch: deployRef,
+                  per_page: 20,
+                })
+              ).data.workflow_runs;
+
+              deploymentRun = runs
+                .filter((run) =>
+                  run.event === "workflow_dispatch" &&
+                  run.head_branch === deployRef &&
+                  new Date(run.created_at).getTime() >= dispatchStartedMs
+                )
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] ?? null;
+
+              if (deploymentRun) {
+                core.info(
+                  `Deployment run ${deploymentRun.id}: ${deploymentRun.status}/${deploymentRun.conclusion ?? "pending"}`
+                );
+                if (deploymentRun.status === "completed") {
+                  break;
+                }
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 15000));
+            }
+
+            if (!deploymentRun || deploymentRun.status !== "completed") {
+              throw new Error("Timed out waiting for the Deploy Pages workflow.");
+            }
+            if (deploymentRun.conclusion !== "success") {
+              throw new Error(
+                `Deploy Pages failed with conclusion ${deploymentRun.conclusion}.`
+              );
+            }
+
+            const releaseOptions = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: upstreamRelease.tag_name,
+              target_commitish: deployRef,
+              body: upstreamRelease.body ?? "",
+              draft: false,
+              prerelease: upstreamRelease.prerelease,
+            };
+
+            if (upstreamRelease.name !== null && upstreamRelease.name !== undefined) {
+              releaseOptions.name = upstreamRelease.name;
+            }
+
+            await github.rest.repos.createRelease(releaseOptions);
+            core.info(`Published release ${upstreamRelease.tag_name}.`);
