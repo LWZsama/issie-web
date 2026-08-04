@@ -1150,6 +1150,7 @@ let saveOpenFileAction isAuto model (dispatch: Msg -> Unit)=
         else 
             saveStateToFile project.ProjectPath project.OpenFileName savedState
             |> displayAlertOnError dispatch
+            persistFileToExternalStorageAsync (pathJoin [| project.ProjectPath; project.OpenFileName + ".dgm" |]) |> Promise.start
             removeFileWithExtn ".dgmauto" project.ProjectPath project.OpenFileName
             let origLdComp =
                 project.LoadedComponents
@@ -1194,6 +1195,7 @@ let saveOpenFileToModel model =
         let sheetInfo: SheetInfo = {Form = ldc.Form; Description = ldc.Description; ParameterDefinitions= CanvasExtractor.tidyParamSlots canvasState ldc.LCParameterSlots; IsTopSheet = Some ldc.IsTopSheet} //only user defined sheets are editable and thus saveable
         let savedState = canvasState, getSavedWave model,(Some sheetInfo)
         saveStateToFile project.ProjectPath project.OpenFileName savedState |> ignore
+        persistFileToExternalStorageAsync (pathJoin [| project.ProjectPath; project.OpenFileName + ".dgm" |]) |> Promise.start
         removeFileWithExtn ".dgmauto" project.ProjectPath project.OpenFileName
         let origLdComp =
             project.LoadedComponents
