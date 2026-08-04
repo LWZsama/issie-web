@@ -119,6 +119,7 @@
     <Compile Include="UI\UIPopups.fs" />
     <Compile Include="UI\MemoryEditorView.fs" />
     <Compile Include="UI\MenuHelpers.fs" />
+    <Compile Include="UI\BrowserSession.fs" />
       <Compile Include="VerilogComponent\SheetCreator.fs" /> 
     <Compile Include="UI\MiscMenuView.fs" />
     <Compile Include="UI\TopMenuView.fs" />
