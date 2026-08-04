@@ -85,6 +85,10 @@ module Constants =
     let minMagnification = 0.1
     /// factor by which zoom is increased or decreased
     let zoomIncrement = 1.2
+    /// smaller step for wheel/pinch zoom so trackpads feel usable in the browser
+    let fineZoomIncrement = 1.05
+    /// browser pinch sensitivity for trackpad zoom. Increase for faster pinch zoom.
+    let pinchZoomSensitivity = 0.007
     /// aspect ratio required before align or distribute can be done
     let boxAspectRatio = 2. 
     /// id of the Sheet menu's dropdown, which when pinned covers the left of the canvas. Its width
