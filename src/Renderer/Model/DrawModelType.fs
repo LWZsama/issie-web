@@ -495,7 +495,8 @@ module SheetT =
     /// AltC, AltV, AltZ and AltShiftZ used to be here with no dispatcher, and CtrlS with a handler
     /// that added a square for a demo.
     type KeyboardMsg =
-        | CtrlC | CtrlV | CtrlZ | CtrlY | CtrlA | CtrlW | ZoomIn | ZoomOut | DEL | ESC
+        | CtrlC | CtrlV | CtrlZ | CtrlY | CtrlA | CtrlW
+        | ZoomIn | ZoomOut | ZoomInFine | ZoomOutFine | DEL | ESC
 
     type WireTypeMsg =
         | Jump | Radiussed | Modern
@@ -545,6 +546,7 @@ module SheetT =
         | KeyPress of KeyboardMsg
         | ToggleGrid
         | KeepZoomCentered of XYPos
+        | PreciseZoom of float
         | MouseMsg of MouseT
         | MouseMsgOrig of Browser.Types.MouseEvent * MouseOp * float
         | UpdateBoundingBoxes
