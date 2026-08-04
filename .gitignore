@@ -219,11 +219,35 @@ project.lock.json
 *.fs.js
 *.fs.js.map
 
+# Fable output generated for the browser bundle
+src/Renderer/**/*.js
+!src/Renderer/UartFiles/IS-uart-browser.js
+!src/Renderer/VerilogComponent/VerilogGrammar.js
+!src/Renderer/VerilogComponent/parser.js
+!src/Renderer/VerilogComponent/prism.js
+!src/Renderer/VerilogComponent/test/testParser.js
+
 /global.json
 
 # Fable temporary files
 
 **/*.fable-temp.csproj
+
+# Browser build workspace
+/.web-generated/
+/web/build/
+/web/node_modules/
+/web/npm-debug.log*
+
+# Local restore/build caches
+/.dotnet/
+/.nuget/
+/.user/
+/.paket/
+/paket-files/
+/src/Renderer/bin/
+/src/Renderer/obj/
+/src/Renderer/fable_modules/
 
 # FSharp.Formatting
 .fsdocs/
