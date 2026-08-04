@@ -317,6 +317,7 @@ let attachMenusAndKeyShortcuts (dispatch: Msg -> unit) : System.IDisposable =
     Log.publish()
     let userAppDir = getUserAppDir()
     dispatch <| ReadUserData userAppDir
+    dispatch <| Msg.ExecFuncInMessage(TopMenuView.loadDemoProjectFromHash, dispatch)
     { new System.IDisposable with member _.Dispose() = () }
 
 // This setup is useful to add other pages, in case they are needed.
@@ -349,6 +350,7 @@ let view' model dispatch =
     // Counted unconditionally - one increment - because a re-render storm is Issie's classic
     // performance failure and nothing used to count renders at all.
     Log.countRender()
+    BrowserSession.installBeforeUnloadWarning model
     let start = TimeHelpers.getTimeMs()
     view model dispatch
     |> (fun view ->
@@ -373,6 +375,39 @@ let private windowListenerSub (eventName: string) (makeHandler: (Msg -> unit) ->
         { new System.IDisposable with
             member _.Dispose() = Browser.Dom.window.removeEventListener(eventName, handler) }
 
+[<Emit("window.addEventListener('wheel', $0, { capture: true, passive: false })")>]
+let private addGlobalWheelListener (_handler: Browser.Types.WheelEvent -> unit) : unit = jsNative
+
+[<Emit("document.getElementById('Canvas')")>]
+let private getCanvasElement () : Browser.Types.HTMLElement = jsNative
+
+[<Emit("$0 && typeof $0.closest === 'function' ? $0.closest('#Canvas, #WholeApp') : null")>]
+let private closestCanvasScope (_target: obj) : obj = jsNative
+
+[<Emit("$0 && typeof $0.closest === 'function' ? $0.closest('input, textarea, select, [contenteditable=true], [contenteditable=\"true\"], [contenteditable=\"\"]') : null")>]
+let private closestEditableTarget (_target: obj) : obj = jsNative
+
+[<Emit("Array.isArray($0) ? $0.join(',') : String($0 ?? '')")>]
+let private contextMenuArgsToString (_args: obj) : string = jsNative
+
+[<Emit("window.addEventListener('issie-context-menu-command', $0)")>]
+let private addBrowserContextMenuCommandListener (_handler: obj -> unit) : unit = jsNative
+
+[<Emit("$0.detail")>]
+let private getCustomEventDetail (_event: obj) : obj = jsNative
+
+let private focusCanvasElement () =
+    getCanvasElement ()
+    |> Option.ofObj
+    |> Option.iter (fun element -> element.focus())
+
+let private isCanvasInteractionTarget (target: obj) =
+    not (isNullOrUndefined (closestCanvasScope target))
+
+let private shouldHandleCanvasShortcuts (target: obj) =
+    isCanvasInteractionTarget target
+    && isNullOrUndefined (closestEditableTarget target)
+
 /// The application's subscriptions, in Elmish 4 form: a constant set of identified
 /// subscriptions, each returning its teardown. The set does not depend on the model, so each
 /// subscription is started exactly once, as with Elmish 3's Cmd.ofSub.
@@ -384,13 +419,19 @@ let appSubscriptions (_model: ModelType.Model) : Sub<Msg> =
     /// block would think Ctrl was still down - which is what the old decaying list of held keys
     /// existed to paper over.
     let subBlur = windowListenerSub "blur" KeyBindings.onWindowBlur
-    /// unfinished code
-    /// add hook in main function to display a context menu
-    /// create menu as shown in main.fs
+
+    let subWheel dispatch =
+        addGlobalWheelListener (fun e ->
+            if (e.ctrlKey || e.metaKey) && isCanvasInteractionTarget e.target then
+                e.preventDefault())
+        { new System.IDisposable with member _.Dispose() = () }
+
     let subRightClick =
         domListenerSub "contextmenu" (fun dispatch -> unbox (fun (e:Browser.Types.MouseEvent) ->
-            e.preventDefault()
-            dispatch (ContextMenuAction e)))
+            if shouldHandleCanvasShortcuts e.target then
+                e.preventDefault()
+                focusCanvasElement ()
+                dispatch (ContextMenuAction e)))
 
     let subContextMenuCommand (dispatch: Msg -> unit) =
         Bridge.onContextMenuCommand (fun arg ->
@@ -401,6 +442,14 @@ let appSubscriptions (_model: ModelType.Model) : Sub<Msg> =
         // the listener lives as long as the app: nothing worth tearing down
         { new System.IDisposable with member _.Dispose() = () }
 
+    let subBrowserContextMenuCommand (dispatch: Msg -> unit) =
+        addBrowserContextMenuCommandListener (fun event ->
+            let arg = contextMenuArgsToString (getCustomEventDetail event)
+            match arg.Split [|','|] |> Array.toList with
+            | [ menuType ; item ] ->
+                dispatch <| ContextMenuItemClick(menuType, item, dispatch)
+            | _ -> printfn "Unexpected browser context-menu callback argument.")
+        { new System.IDisposable with member _.Dispose() = () }
     // Why does this not work in production?
     // let periodicMemoryCheckCommand dispatch =
     //     JSHelpers.periodicDispatch dispatch UpdateHelpers.Constants.memoryUpdateCheckTime CheckMemory |> ignore
@@ -410,8 +459,10 @@ let appSubscriptions (_model: ModelType.Model) : Sub<Msg> =
         ["keydown"], subDown
         ["keyup"], subUp
         ["blur"], subBlur
+        ["wheel"], subWheel
         ["contextmenu"], subRightClick
         ["ipc"; "context-menu-command"], subContextMenuCommand
+        ["browser"; "context-menu-command"], subBrowserContextMenuCommand
     ]
 
 Program.mkProgram init update view'
