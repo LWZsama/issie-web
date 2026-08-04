@@ -1273,6 +1273,7 @@ let saveOpenFileAction isAuto model (dispatch: Msg -> Unit)=
         else 
             saveStateToFile project.ProjectPath project.OpenFileName savedState
             |> displayAlertOnError dispatch
+            persistFileToExternalStorageAsync (pathJoin [| project.ProjectPath; project.OpenFileName + ".dgm" |]) |> Promise.start
             removeFileWithExtn ".dgmauto" project.ProjectPath project.OpenFileName
             let origLdComp =
                 project.LoadedComponents
@@ -1318,6 +1319,7 @@ let saveOpenFileToModel model =
         let design = designWithSheet project project.OpenFileName canvasState
         let savedState = canvasState, getSavedWave design model,(Some sheetInfo)
         saveStateToFile project.ProjectPath project.OpenFileName savedState |> ignore
+        persistFileToExternalStorageAsync (pathJoin [| project.ProjectPath; project.OpenFileName + ".dgm" |]) |> Promise.start
         removeFileWithExtn ".dgmauto" project.ProjectPath project.OpenFileName
         let origLdComp =
             project.LoadedComponents
