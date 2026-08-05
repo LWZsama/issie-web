@@ -17,6 +17,15 @@ module Constants =
 
 let mutable private zoomWheelAccumulator = 0.0
 
+// A browser pinch gesture reports ctrlKey/metaKey even though no physical modifier key is held.
+// KeyBindings updates this edge-triggered state for real Control/Meta key presses so wheel input
+// can distinguish those two cases without guessing from the size of deltaY.
+let mutable private physicalModifierHeld = false
+
+let setPhysicalModifierHeld value = physicalModifierHeld <- value
+
+let isPhysicalModifierHeld () = physicalModifierHeld
+
 let private floatSign value =
     if value > 0.0 then 1.0
     elif value < 0.0 then -1.0
@@ -83,9 +92,9 @@ let private normalizedWheelDelta (ev: Types.WheelEvent) =
 
 let wheelUpdate (ev: Types.WheelEvent) model dispatch =
     let delta = normalizedWheelDelta ev
-    // Pinch events normally have small deltas; larger Ctrl/Cmd deltas are treated as stepped zoom.
-    let isPinchZoom = ev.ctrlKey && not ev.metaKey && abs delta < 20.0
-    let isDiscreteShortcutZoom = ev.ctrlKey || ev.metaKey
+    let isZoomGesture = ev.ctrlKey || ev.metaKey
+    let isPinchZoom = isZoomGesture && not (isPhysicalModifierHeld ())
+    let isDiscreteShortcutZoom = isZoomGesture && isPhysicalModifierHeld ()
 
     if isPinchZoom then
         ev.preventDefault()
