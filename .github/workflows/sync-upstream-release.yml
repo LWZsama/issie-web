@@ -18,34 +18,43 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Sync latest upstream release
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Read latest upstream release
+        id: upstream_release
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const upstreamOwner = "tomcl";
             const upstreamRepo = "issie";
-            const deployWorkflow = "deploy-pages.yml";
-            const deployRef = context.ref.replace(/^refs\/heads\//, "");
-
-            if (!deployRef) {
-              throw new Error(`Unable to determine the deployment ref from ${context.ref}.`);
-            }
-
-            const upstreamRelease = (
+            const release = (
               await github.rest.repos.getLatestRelease({
                 owner: upstreamOwner,
                 repo: upstreamRepo,
               })
             ).data;
 
-            let existingRelease = null;
+            if (!/^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
+              throw new Error(`Unsupported upstream release tag: ${release.tag_name}`);
+            }
+
+            let localRelease = null;
             try {
-              existingRelease = (
+              localRelease = (
                 await github.rest.repos.getReleaseByTag({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  tag: upstreamRelease.tag_name,
+                  tag: release.tag_name,
                 })
               ).data;
             } catch (error) {
@@ -54,19 +63,104 @@ jobs:
               }
             }
 
-            if (existingRelease) {
-              core.info(`Release ${upstreamRelease.tag_name} already exists; nothing to do.`);
-              return;
-            }
+            core.setOutput("tag", release.tag_name);
+            core.setOutput("local_release_exists", localRelease ? "true" : "false");
 
-            const dispatchStartedMs = Date.now() - 5 * 60 * 1000;
+      - name: Rebase Web port onto the upstream release
+        id: sync
+        env:
+          DEPLOY_REF: ${{ github.ref_name }}
+          UPSTREAM_TAG: ${{ steps.upstream_release.outputs.tag }}
+          LOCAL_RELEASE_EXISTS: ${{ steps.upstream_release.outputs.local_release_exists }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$DEPLOY_REF" != "master" ]]; then
+            echo "The release sync must run on master, not $DEPLOY_REF." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/tomcl/issie.git
+          git checkout -B "$DEPLOY_REF" "origin/$DEPLOY_REF"
+          git fetch --no-tags --force upstream "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-release"
+
+          upstream_sha=$(git rev-parse refs/tags/upstream-release^{commit})
+          local_tag_sha=""
+          if git rev-parse --verify "refs/tags/$UPSTREAM_TAG^{commit}" >/dev/null 2>&1; then
+            local_tag_sha=$(git rev-parse "refs/tags/$UPSTREAM_TAG^{commit}")
+          fi
+
+          if git merge-base --is-ancestor "$upstream_sha" HEAD \
+            && [[ "$local_tag_sha" == "$(git rev-parse HEAD)" ]] \
+            && [[ "$LOCAL_RELEASE_EXISTS" == "true" ]]; then
+            echo "Release $UPSTREAM_TAG already points at the current upstream-based commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          rebase_base=$(git merge-base "$upstream_sha" HEAD)
+          if [[ "$rebase_base" != "$upstream_sha" ]]; then
+            # A conflict stops this job before any push, deployment, or release publication.
+            git rebase --onto "$upstream_sha" "$rebase_base" "$DEPLOY_REF"
+          fi
+
+          release_version="${UPSTREAM_TAG#v}"
+          npm --prefix web version "$release_version" --no-git-tag-version --ignore-scripts
+
+          RELEASE_VERSION="$release_version" node <<'NODE'
+          const fs = require("fs");
+          const version = process.env.RELEASE_VERSION;
+          const packageVersion = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+          const source = fs.readFileSync("src/Renderer/Interface/Version.fs", "utf8");
+          const match = source.match(/let VERSION = \[\s*"(\d+)"\s*;\s*"(\d+)"\s*;\s*"(\d+)"/);
+          const sourceVersion = match ? match.slice(1).join(".") : null;
+
+          if (packageVersion !== version || sourceVersion !== version) {
+            throw new Error(
+              `Release version mismatch: package.json=${packageVersion}, Version.fs=${sourceVersion}, expected=${version}`
+            );
+          }
+          NODE
+
+          if ! git diff --quiet -- web/package.json web/package-lock.json; then
+            git add web/package.json web/package-lock.json
+            git commit -m "chore(release): sync browser version to $UPSTREAM_TAG"
+          fi
+
+          if ! git merge-base --is-ancestor "$upstream_sha" HEAD; then
+            echo "The resulting branch is not based on $UPSTREAM_TAG." >&2
+            exit 1
+          fi
+
+          new_head=$(git rev-parse HEAD)
+          git push --force-with-lease origin "HEAD:refs/heads/$DEPLOY_REF"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$new_head" >> "$GITHUB_OUTPUT"
+
+      - name: Build and deploy Pages
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        env:
+          DEPLOY_REF: ${{ github.ref_name }}
+          UPSTREAM_TAG: ${{ steps.upstream_release.outputs.tag }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const deployWorkflow = "deploy-pages.yml";
+            const dispatchStartedMs = Date.now();
+
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: deployWorkflow,
-              ref: deployRef,
+              ref: process.env.DEPLOY_REF,
               inputs: {
-                upstream_release_tag: upstreamRelease.tag_name,
+                upstream_release_tag: process.env.UPSTREAM_TAG,
               },
             });
 
@@ -78,17 +172,14 @@ jobs:
                   repo: context.repo.repo,
                   workflow_id: deployWorkflow,
                   event: "workflow_dispatch",
-                  branch: deployRef,
+                  branch: process.env.DEPLOY_REF,
+                  head_sha: process.env.HEAD_SHA,
                   per_page: 20,
                 })
               ).data.workflow_runs;
 
               deploymentRun = runs
-                .filter((run) =>
-                  run.event === "workflow_dispatch" &&
-                  run.head_branch === deployRef &&
-                  new Date(run.created_at).getTime() >= dispatchStartedMs
-                )
+                .filter((run) => new Date(run.created_at).getTime() >= dispatchStartedMs)
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] ?? null;
 
               if (deploymentRun) {
@@ -107,16 +198,76 @@ jobs:
               throw new Error("Timed out waiting for the Deploy Pages workflow.");
             }
             if (deploymentRun.conclusion !== "success") {
-              throw new Error(
-                `Deploy Pages failed with conclusion ${deploymentRun.conclusion}.`
-              );
+              throw new Error(`Deploy Pages failed with conclusion ${deploymentRun.conclusion}.`);
             }
+
+      - name: Remove stale release
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream_release.outputs.tag }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const release = (
+                await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag: process.env.UPSTREAM_TAG,
+                })
+              ).data;
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+              });
+              core.info(`Removed the previous release ${process.env.UPSTREAM_TAG}.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+      - name: Recreate release tag
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream_release.outputs.tag }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$UPSTREAM_TAG" >/dev/null 2>&1; then
+            git push origin ":refs/tags/$UPSTREAM_TAG"
+          fi
+          if git show-ref --verify --quiet "refs/tags/$UPSTREAM_TAG"; then
+            git tag -d "$UPSTREAM_TAG"
+          fi
+          git tag -a "$UPSTREAM_TAG" "$HEAD_SHA" -m "Release $UPSTREAM_TAG"
+          git push origin "refs/tags/$UPSTREAM_TAG"
+
+      - name: Publish release with upstream notes
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        env:
+          UPSTREAM_TAG: ${{ steps.upstream_release.outputs.tag }}
+          HEAD_SHA: ${{ steps.sync.outputs.head_sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const upstreamRelease = (
+              await github.rest.repos.getLatestRelease({
+                owner: "tomcl",
+                repo: "issie",
+              })
+            ).data;
 
             const releaseOptions = {
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: upstreamRelease.tag_name,
-              target_commitish: deployRef,
+              tag_name: process.env.UPSTREAM_TAG,
+              target_commitish: process.env.HEAD_SHA,
               body: upstreamRelease.body ?? "",
               draft: false,
               prerelease: upstreamRelease.prerelease,
@@ -127,4 +278,4 @@ jobs:
             }
 
             await github.rest.repos.createRelease(releaseOptions);
-            core.info(`Published release ${upstreamRelease.tag_name}.`);
+            core.info(`Published release ${process.env.UPSTREAM_TAG}.`);
