@@ -345,6 +345,7 @@ let onKeyDown (dispatch: Msg -> unit) (e: Browser.Types.Event) =
         // Ctrl held is a state, not a chord, so it is tracked separately from the table
         if (ev.key = "Control" || ev.key = "Meta") && not ctrlHeld then
             ctrlHeld <- true
+            SheetDisplay.setPhysicalModifierHeld true
             dispatch <| Sheet SheetT.PortMovementStart
 
 let onKeyUp (dispatch: Msg -> unit) (e: Browser.Types.Event) =
@@ -353,10 +354,12 @@ let onKeyUp (dispatch: Msg -> unit) (e: Browser.Types.Event) =
     // other key while Ctrl was held left the model thinking Ctrl was up when it was not.
     if (ev.key = "Control" || ev.key = "Meta") && ctrlHeld then
         ctrlHeld <- false
+        SheetDisplay.setPhysicalModifierHeld false
         dispatch <| Sheet SheetT.PortMovementEnd
 
 /// Ctrl released while the window is not focused produces no keyup at all.
 let onWindowBlur (dispatch: Msg -> unit) (_: Browser.Types.Event) =
     if ctrlHeld then
         ctrlHeld <- false
+        SheetDisplay.setPhysicalModifierHeld false
         dispatch <| Sheet SheetT.PortMovementEnd
