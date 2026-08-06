@@ -2,7 +2,6 @@
 open CommonTypes
 open Fable.React
 open Fable.React.Props
-open Fable.Core
 open Browser
 open Elmish
 open DrawHelpers
@@ -15,11 +14,8 @@ open SheetSnap
 
 module Constants =
     let ZoomWheelStepThreshold = 30.0
-    let PinchWheelBatchDelayMs = 16
 
 let mutable private zoomWheelAccumulator = 0.0
-let mutable private pinchWheelAccumulator = 0.0
-let mutable private pinchWheelFlushScheduled = false
 
 // A browser pinch gesture reports ctrlKey/metaKey even though no physical modifier key is held.
 // KeyBindings updates this edge-triggered state for real Control/Meta key presses so wheel input
@@ -29,25 +25,6 @@ let mutable private physicalModifierHeld = false
 let setPhysicalModifierHeld value = physicalModifierHeld <- value
 
 let isPhysicalModifierHeld () = physicalModifierHeld
-
-/// Pinch gestures can produce many wheel events before Elmish has rendered the previous zoom.
-/// Merge one frame of deltas so each centre correction is based on the latest rendered canvas.
-let private queuePinchZoom (delta: float) dispatch =
-    pinchWheelAccumulator <- pinchWheelAccumulator + delta
-
-    if not pinchWheelFlushScheduled then
-        pinchWheelFlushScheduled <- true
-        JS.setTimeout
-            (fun _ ->
-                pinchWheelFlushScheduled <- false
-                let pendingDelta = pinchWheelAccumulator
-                pinchWheelAccumulator <- 0.0
-                let zoomFactor = exp (-pendingDelta * Sheet.Constants.pinchZoomSensitivity)
-
-                if abs (zoomFactor - 1.0) > 0.0001 then
-                    dispatch <| PreciseZoom zoomFactor)
-            Constants.PinchWheelBatchDelayMs
-        |> ignore
 
 let private floatSign value =
     if value > 0.0 then 1.0
@@ -122,10 +99,12 @@ let wheelUpdate (ev: Types.WheelEvent) model dispatch =
     if isPinchZoom then
         ev.preventDefault()
         zoomWheelAccumulator <- 0.0
-        queuePinchZoom delta dispatch
+        let zoomFactor = exp (-delta * Sheet.Constants.pinchZoomSensitivity)
+
+        if abs (zoomFactor - 1.0) > 0.0001 then
+            dispatch <| PreciseZoom zoomFactor
     elif isDiscreteShortcutZoom then
         ev.preventDefault()
-        pinchWheelAccumulator <- 0.0
         let previousAccumulator = zoomWheelAccumulator
         let nextAccumulator =
             if previousAccumulator <> 0.0 && floatSign previousAccumulator <> floatSign delta then
