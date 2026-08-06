@@ -104,8 +104,29 @@ jobs:
 
           rebase_base=$(git merge-base "$upstream_sha" HEAD)
           if [[ "$rebase_base" != "$upstream_sha" ]]; then
-            # A conflict stops this job before any push, deployment, or release publication.
-            git rebase --onto "$upstream_sha" "$rebase_base" "$DEPLOY_REF"
+            # The desktop project-browser work added in 6.0.7+ overlaps the browser port's
+            # FileUpdate module. Keep the browser implementation when that known conflict
+            # occurs; the port carries a no-op activateBrowserSelection API for the upstream
+            # Update module. Fail closed for any other conflict so a release is never built
+            # from an unreviewed merge.
+            if ! git rebase --onto "$upstream_sha" "$rebase_base" "$DEPLOY_REF"; then
+              while true; do
+                mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
+
+                if [[ "${#conflicts[@]}" -ne 1 || "${conflicts[0]}" != "src/Renderer/UI/FileUpdate.fs" ]]; then
+                  echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
+                  git rebase --abort
+                  exit 1
+                fi
+
+                git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
+                git add src/Renderer/UI/FileUpdate.fs
+
+                if GIT_EDITOR=true git rebase --continue; then
+                  break
+                fi
+              done
+            fi
           fi
 
           release_version="${UPSTREAM_TAG#v}"
