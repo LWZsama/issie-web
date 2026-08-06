@@ -68,3 +68,7 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # GitHub Pages can leave a valid artifact in its deployment queue for several
+          # minutes. Allow the service to drain the queue instead of cancelling at 10 minutes.
+          timeout: 1800000
