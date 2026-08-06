@@ -134,6 +134,11 @@ let forceCloseProject (model:Model) dispatch =
                 )
     dispatch FinishUICmd
 
+// The desktop project-browser message is not produced by the browser port, but the
+// upstream Update module still calls this entry point when handling that message.
+// Keep the API available without pulling Electron's project-browser flow into the web port.
+let activateBrowserSelection (_model: Model) (_dispatch: Msg -> unit) = ()
+
 /// Implement a command involving file operations from Update, with access to dispatch
 /// Invoked by message: `FileCommand(fc,dispatch)`.
 /// TODO - refactor to remove dispatch dependence
