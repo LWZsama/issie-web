@@ -113,14 +113,27 @@ jobs:
               while true; do
                 mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
 
-                if [[ "${#conflicts[@]}" -ne 1 || "${conflicts[0]}" != "src/Renderer/UI/FileUpdate.fs" ]]; then
+                if [[ "${#conflicts[@]}" -ne 1 ]]; then
                   echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
                   git rebase --abort
                   exit 1
                 fi
 
-                git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
-                git add src/Renderer/UI/FileUpdate.fs
+                case "${conflicts[0]}" in
+                  src/Renderer/UI/FileUpdate.fs)
+                    git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
+                    git add src/Renderer/UI/FileUpdate.fs
+                    ;;
+                  .github/workflows/build.yml|.github/workflows/docs.yml)
+                    # These upstream workflows are intentionally removed from the browser port.
+                    git rm -- "${conflicts[0]}"
+                    ;;
+                  *)
+                    echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
+                    git rebase --abort
+                    exit 1
+                    ;;
+                esac
 
                 if GIT_EDITOR=true git rebase --continue; then
                   break
