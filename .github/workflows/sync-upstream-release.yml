@@ -105,35 +105,130 @@ jobs:
           rebase_base=$(git merge-base "$upstream_sha" HEAD)
           if [[ "$rebase_base" != "$upstream_sha" ]]; then
             # The desktop project-browser work added in 6.0.7+ overlaps the browser port's
-            # FileUpdate module. Keep the browser implementation when that known conflict
-            # occurs; the port carries a no-op activateBrowserSelection API for the upstream
-            # Update module. Fail closed for any other conflict so a release is never built
-            # from an unreviewed merge.
+            # FileUpdate module, while the browser event/persistence changes overlap a few
+            # upstream implementation details. Resolve only these reviewed conflicts and
+            # fail closed for anything else so a release is never built from an unreviewed
+            # merge.
             if ! git rebase --onto "$upstream_sha" "$rebase_base" "$DEPLOY_REF"; then
               while true; do
                 mapfile -t conflicts < <(git diff --name-only --diff-filter=U)
 
-                if [[ "${#conflicts[@]}" -ne 1 ]]; then
-                  echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
+                if [[ "${#conflicts[@]}" -eq 0 ]]; then
+                  echo "Rebase stopped without a conflict to resolve." >&2
                   git rebase --abort
                   exit 1
                 fi
 
-                case "${conflicts[0]}" in
-                  src/Renderer/UI/FileUpdate.fs)
-                    git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
-                    git add src/Renderer/UI/FileUpdate.fs
-                    ;;
-                  .github/workflows/build.yml|.github/workflows/docs.yml)
-                    # These upstream workflows are intentionally removed from the browser port.
-                    git rm -- "${conflicts[0]}"
-                    ;;
-                  *)
-                    echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
-                    git rebase --abort
-                    exit 1
-                    ;;
-                esac
+                # Validate the complete conflict set before changing any file. This keeps the
+                # handler fail-closed if upstream introduces a new overlap in a future release.
+                for conflict in "${conflicts[@]}"; do
+                  case "$conflict" in
+                    src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/UI/FileUpdate.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
+                      ;;
+                    *)
+                      echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
+                      git rebase --abort
+                      exit 1
+                      ;;
+                  esac
+                done
+
+                for conflict in "${conflicts[@]}"; do
+                  case "$conflict" in
+                    src/Renderer/Interface/FilesIO.fs)
+                      # Preserve the browser-only demo autosave guard and adopt the upstream
+                      # logging change without discarding other upstream edits in this file.
+                      node <<'NODE'
+          const fs = require("fs");
+          const path = "src/Renderer/Interface/FilesIO.fs";
+          const source = fs.readFileSync(path, "utf8");
+          const eol = source.includes("\r\n") ? "\r\n" : "\n";
+          const pattern = /^<<<<<<< HEAD\r?\n[\s\S]*?^=======\r?\n[\s\S]*?^>>>>>>> [^\r\n]*(?:\r?\n|$)/gm;
+          const matches = [...source.matchAll(pattern)];
+          if (
+            matches.length !== 1
+            || !matches[0][0].includes("isDemoProjectPath")
+            || !matches[0][0].includes("Log.dbg Log.Files")
+            || !matches[0][0].includes('printfn $"{fileName} Loaded"')
+          ) {
+            throw new Error("Unexpected FilesIO.fs conflict shape.");
+          }
+          const replacement = [
+            "                    let autoComp =",
+            "                        if isDemoProjectPath folderPath then",
+            "                            Error \"Demo autosave disabled\"",
+            "                        else",
+            "                            filePath + \"auto\" |> tryLoadComponentFromPath",
+            "                    Log.dbg Log.Files $\"loaded {fileName}\"",
+          ].join(eol) + eol;
+          fs.writeFileSync(path, source.replace(pattern, () => replacement));
+          NODE
+                      git add src/Renderer/Interface/FilesIO.fs
+                      ;;
+                    src/Renderer/Renderer.fs)
+                      # Keep both the browser event handlers and upstream render diagnostics.
+                      node <<'NODE'
+          const fs = require("fs");
+          const path = "src/Renderer/Renderer.fs";
+          const source = fs.readFileSync(path, "utf8");
+          const eol = source.includes("\r\n") ? "\r\n" : "\n";
+          const pattern = /^<<<<<<< HEAD\r?\n[\s\S]*?^=======\r?\n[\s\S]*?^>>>>>>> [^\r\n]*(?:\r?\n|$)/gm;
+          const matches = [...source.matchAll(pattern)];
+          if (
+            matches.length !== 3
+            || !matches[0][0].includes("Log.countRender()")
+            || !matches[0][0].includes("BrowserSession.installBeforeUnloadWarning model")
+            || !matches[1][0].includes("shouldHandleCanvasShortcuts")
+            || !matches[1][0].includes("focusCanvasElement ()")
+            || !matches[2][0].includes("subBrowserContextMenuCommand")
+          ) {
+            throw new Error("Unexpected Renderer.fs conflict shape.");
+          }
+          const replacements = [
+            [
+              "    // Counted unconditionally - one increment - because a re-render storm is Issie's classic",
+              "    // performance failure and nothing used to count renders at all.",
+              "    Log.countRender()",
+              "    BrowserSession.installBeforeUnloadWarning model",
+            ].join(eol) + eol,
+            [
+              "            if shouldHandleCanvasShortcuts e.target then",
+              "                e.preventDefault()",
+              "                focusCanvasElement ()",
+              "                dispatch (ContextMenuAction e)))",
+            ].join(eol) + eol,
+            [
+              "    let subBrowserContextMenuCommand (dispatch: Msg -> unit) =",
+              "        addBrowserContextMenuCommandListener (fun event ->",
+              "            let arg = contextMenuArgsToString (getCustomEventDetail event)",
+              "            match arg.Split [|','|] |> Array.toList with",
+              "            | [ menuType ; item ] ->",
+              "                dispatch <| ContextMenuItemClick(menuType, item, dispatch)",
+              "            | _ -> printfn \"Unexpected browser context-menu callback argument.\")",
+              "        { new System.IDisposable with member _.Dispose() = () }",
+            ].join(eol) + eol,
+          ];
+          let resolved = source;
+          for (let index = matches.length - 1; index >= 0; index -= 1) {
+            const start = matches[index].index;
+            const end = start + matches[index][0].length;
+            resolved = resolved.slice(0, start) + replacements[index] + resolved.slice(end);
+          }
+          fs.writeFileSync(path, resolved);
+          NODE
+                      git add src/Renderer/Renderer.fs
+                      ;;
+                    src/Renderer/UI/FileUpdate.fs)
+                      # The browser port intentionally replaces the desktop project browser.
+                      git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
+                      git add src/Renderer/UI/FileUpdate.fs
+                      ;;
+                    .github/workflows/build.yml|.github/workflows/docs.yml)
+                      # These upstream workflows are intentionally removed from the browser port.
+                      git rm -- "$conflict"
+                      ;;
+                  esac
+                done
 
                 if GIT_EDITOR=true git rebase --continue; then
                   break
