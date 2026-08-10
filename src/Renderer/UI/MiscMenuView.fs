@@ -1052,5 +1052,5 @@ let importSheet model dispatch =
                             dispatch <| SetProject p
                         | _ -> ()
                         importSheetPopup projectDir paths sourceProjectDir dispatch))
-            (fun err -> JSHelpers.log err.Message)
+            (fun err -> Log.error err.Message)
 
