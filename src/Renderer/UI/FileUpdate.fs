@@ -68,7 +68,7 @@ let rec private newProject model dispatch  =
             | Some path ->
                 match tryCreateFolder path with
                 | Error err ->
-                    JSHelpers.log err
+                    Log.error err
                     electronRemote.dialog.showErrorBox("Invalid Project Name", err)
                     newProject model dispatch
                 | Ok _ ->
