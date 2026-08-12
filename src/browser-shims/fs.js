@@ -149,6 +149,23 @@ function listEntries(folderPath) {
   return readHttpDirectoryManifest(folderPath) || [];
 }
 
+function isDirectoryPath(targetPath) {
+  const normalized = normalizePath(targetPath);
+
+  if (normalized === "/" || localStorage.getItem(dirKey(normalized)) !== null) {
+    return true;
+  }
+
+  // The web build writes an index.json manifest for every copied static directory. This keeps
+  // directory checks synchronous, matching the bridge contract used by the renderer.
+  return readHttpDirectoryManifest(targetPath) !== null;
+}
+
+function listDirectories(folderPath) {
+  return listEntries(folderPath)
+    .filter((entry) => isDirectoryPath(`${toHttpPath(folderPath)}/${entry}`));
+}
+
 module.exports = {
   existsSync(targetPath) {
     const normalized = normalizePath(targetPath);
@@ -175,6 +192,9 @@ module.exports = {
   mkdirSync(folderPath) {
     ensureDirectory(folderPath);
   },
+  isDirectorySync(targetPath) {
+    return isDirectoryPath(targetPath);
+  },
   readFileSync(filePath) {
     const normalized = normalizePath(filePath);
     const stored = localStorage.getItem(fileKey(normalized));
@@ -187,6 +207,9 @@ module.exports = {
   },
   readdirSync(folderPath) {
     return listEntries(folderPath);
+  },
+  readdirDirectoriesSync(folderPath) {
+    return listDirectories(folderPath);
   },
   renameSync(oldPath, newPath) {
     const normalizedOld = normalizePath(oldPath);

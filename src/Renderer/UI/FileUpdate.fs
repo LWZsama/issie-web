@@ -69,7 +69,7 @@ let rec private newProject model dispatch  =
                 match tryCreateFolder path with
                 | Error err ->
                     Log.error err
-                    electronRemote.dialog.showErrorBox("Invalid Project Name", err)
+                    alert $"Invalid Project Name\n\n{err}"
                     newProject model dispatch
                 | Ok _ ->
                     dispatch EndSimulation
@@ -89,8 +89,8 @@ let rec private newProject model dispatch  =
                         (fun _ ->
                             dispatch <| SetUserData {model.UserData with LastUsedDirectory = Some path}
                             setupProjectFromComponents false "main" [initialComponent] model dispatch)
-                        (fun err -> electronRemote.dialog.showErrorBox("Create project failed", err.Message)))
-            (fun err -> electronRemote.dialog.showErrorBox("Create project failed", err.Message)))
+                        (fun err -> alert $"Create project failed\n\n{err.Message}"))
+            (fun err -> alert $"Create project failed\n\n{err.Message}"))
 
 /// open an existing project
 let private openProject model dispatch =
@@ -105,7 +105,7 @@ let private openProject model dispatch =
             (function
             | None -> ()
             | Some path -> openProjectFromPath path model dispatch)
-            (fun err -> electronRemote.dialog.showErrorBox("Open project failed", err.Message)))
+            (fun err -> alert $"Open project failed\n\n{err.Message}"))
 
 /// Close current project, if any.
 
