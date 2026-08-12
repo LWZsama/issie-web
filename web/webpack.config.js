@@ -11,7 +11,10 @@ module.exports = {
   mode,
   target: "web",
   devtool: "cheap-module-source-map",
-  entry: path.join(generatedDir, "Renderer.js"),
+  entry: [
+    path.join(rootDir, "src", "browser-shims", "issie-bridge.js"),
+    path.join(generatedDir, "Renderer.js"),
+  ],
   output: {
     globalObject: "this",
     filename: "renderer-index.js",
