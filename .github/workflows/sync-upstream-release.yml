@@ -123,7 +123,7 @@ jobs:
                 # handler fail-closed if upstream introduces a new overlap in a future release.
                 for conflict in "${conflicts[@]}"; do
                   case "$conflict" in
-                    src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/UI/FileUpdate.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
+                    src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/UI/FileUpdate.fs|src/Renderer/UI/Update.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
                       ;;
                     *)
                       echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
@@ -222,6 +222,14 @@ jobs:
                       # The browser port intentionally replaces the desktop project browser.
                       git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
                       git add src/Renderer/UI/FileUpdate.fs
+                      ;;
+                    src/Renderer/UI/Update.fs)
+                      # Keep upstream's Bridge-based update logic. The browser Bridge shim records
+                      # the last pointer position before forwarding this menu request, so the
+                      # upstream call remains correctly positioned without retaining the old
+                      # renderer IPC binding.
+                      git checkout --ours -- src/Renderer/UI/Update.fs
+                      git add src/Renderer/UI/Update.fs
                       ;;
                     .github/workflows/build.yml|.github/workflows/docs.yml)
                       # These upstream workflows are intentionally removed from the browser port.
