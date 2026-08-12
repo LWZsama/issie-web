@@ -85,6 +85,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote get-url upstream >/dev/null 2>&1 || git remote add upstream https://github.com/tomcl/issie.git
           git checkout -B "$DEPLOY_REF" "origin/$DEPLOY_REF"
+          local_head=$(git rev-parse HEAD)
           git fetch --no-tags --force upstream "refs/tags/$UPSTREAM_TAG:refs/tags/upstream-release"
 
           upstream_sha=$(git rev-parse refs/tags/upstream-release^{commit})
@@ -243,6 +244,33 @@ jobs:
                 fi
               done
             fi
+          fi
+
+          # Workflow files belong to this fork, not to the upstream desktop project. The default
+          # GITHUB_TOKEN is a GitHub App token without the separate Workflows permission, so a
+          # release push must not leave any upstream workflow change in the resulting tree. Restore
+          # every workflow tracked by the pre-rebase fork and remove workflows that only upstream
+          # introduced (including the desktop build/docs workflows).
+          declare -A local_workflow_set=()
+          mapfile -t local_workflows < <(git ls-tree -r --name-only "$local_head" -- .github/workflows)
+          for workflow in "${local_workflows[@]}"; do
+            local_workflow_set["$workflow"]=1
+          done
+
+          mapfile -t rebased_workflows < <(git ls-files .github/workflows)
+          for workflow in "${rebased_workflows[@]}"; do
+            if [[ -v "local_workflow_set[$workflow]" ]]; then
+              git checkout "$local_head" -- "$workflow"
+              git add "$workflow"
+            else
+              git rm -- "$workflow"
+            fi
+          done
+
+          if [[ -n "$(git diff --name-only "$local_head" -- .github/workflows)" ]]; then
+            echo "The rebased tree still changes a workflow owned by this fork." >&2
+            git diff --name-status "$local_head" -- .github/workflows >&2
+            exit 1
           fi
 
           release_version="${UPSTREAM_TAG#v}"
