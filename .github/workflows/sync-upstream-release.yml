@@ -175,45 +175,59 @@ jobs:
           const eol = source.includes("\r\n") ? "\r\n" : "\n";
           const pattern = /^<<<<<<< HEAD\r?\n[\s\S]*?^=======\r?\n[\s\S]*?^>>>>>>> [^\r\n]*(?:\r?\n|$)/gm;
           const matches = [...source.matchAll(pattern)];
+          let resolved;
           if (
-            matches.length !== 3
-            || !matches[0][0].includes("Log.countRender()")
-            || !matches[0][0].includes("BrowserSession.installBeforeUnloadWarning model")
-            || !matches[1][0].includes("shouldHandleCanvasShortcuts")
-            || !matches[1][0].includes("focusCanvasElement ()")
-            || !matches[2][0].includes("subBrowserContextMenuCommand")
+            matches.length === 1
+            && matches[0][0].includes("DevHarness.recordModel model")
+            && matches[0][0].includes("BrowserSession.installBeforeUnloadWarning model")
           ) {
-            throw new Error("Unexpected Renderer.fs conflict shape.");
-          }
-          const replacements = [
-            [
-              "    // Counted unconditionally - one increment - because a re-render storm is Issie's classic",
-              "    // performance failure and nothing used to count renders at all.",
-              "    Log.countRender()",
+            const replacement = [
+              "    // the model the render is about to draw, for anything driving Issie from outside it",
+              "    DevHarness.recordModel model",
               "    BrowserSession.installBeforeUnloadWarning model",
-            ].join(eol) + eol,
-            [
-              "            if shouldHandleCanvasShortcuts e.target then",
-              "                e.preventDefault()",
-              "                focusCanvasElement ()",
-              "                dispatch (ContextMenuAction e)))",
-            ].join(eol) + eol,
-            [
-              "    let subBrowserContextMenuCommand (dispatch: Msg -> unit) =",
-              "        addBrowserContextMenuCommandListener (fun event ->",
-              "            let arg = contextMenuArgsToString (getCustomEventDetail event)",
-              "            match arg.Split [|','|] |> Array.toList with",
-              "            | [ menuType ; item ] ->",
-              "                dispatch <| ContextMenuItemClick(menuType, item, dispatch)",
-              "            | _ -> printfn \"Unexpected browser context-menu callback argument.\")",
-              "        { new System.IDisposable with member _.Dispose() = () }",
-            ].join(eol) + eol,
-          ];
-          let resolved = source;
-          for (let index = matches.length - 1; index >= 0; index -= 1) {
-            const start = matches[index].index;
-            const end = start + matches[index][0].length;
-            resolved = resolved.slice(0, start) + replacements[index] + resolved.slice(end);
+            ].join(eol) + eol;
+            resolved = source.replace(pattern, () => replacement);
+          } else {
+            if (
+              matches.length !== 3
+              || !matches[0][0].includes("Log.countRender()")
+              || !matches[0][0].includes("BrowserSession.installBeforeUnloadWarning model")
+              || !matches[1][0].includes("shouldHandleCanvasShortcuts")
+              || !matches[1][0].includes("focusCanvasElement ()")
+              || !matches[2][0].includes("subBrowserContextMenuCommand")
+            ) {
+              throw new Error("Unexpected Renderer.fs conflict shape.");
+            }
+            const replacements = [
+              [
+                "    // Counted unconditionally - one increment - because a re-render storm is Issie's classic",
+                "    // performance failure and nothing used to count renders at all.",
+                "    Log.countRender()",
+                "    BrowserSession.installBeforeUnloadWarning model",
+              ].join(eol) + eol,
+              [
+                "            if shouldHandleCanvasShortcuts e.target then",
+                "                e.preventDefault()",
+                "                focusCanvasElement ()",
+                "                dispatch (ContextMenuAction e)))",
+              ].join(eol) + eol,
+              [
+                "    let subBrowserContextMenuCommand (dispatch: Msg -> unit) =",
+                "        addBrowserContextMenuCommandListener (fun event ->",
+                "            let arg = contextMenuArgsToString (getCustomEventDetail event)",
+                "            match arg.Split [|','|] |> Array.toList with",
+                "            | [ menuType ; item ] ->",
+                "                dispatch <| ContextMenuItemClick(menuType, item, dispatch)",
+                "            | _ -> printfn \"Unexpected browser context-menu callback argument.\")",
+                "        { new System.IDisposable with member _.Dispose() = () }",
+              ].join(eol) + eol,
+            ];
+            resolved = source;
+            for (let index = matches.length - 1; index >= 0; index -= 1) {
+              const start = matches[index].index;
+              const end = start + matches[index][0].length;
+              resolved = resolved.slice(0, start) + replacements[index] + resolved.slice(end);
+            }
           }
           fs.writeFileSync(path, resolved);
           NODE
