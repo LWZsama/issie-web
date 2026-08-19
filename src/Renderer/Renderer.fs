@@ -476,7 +476,7 @@ let appSubscriptions (_model: ModelType.Model) : Sub<Msg> =
             match arg.Split [|','|] |> Array.toList with
             | [ menuType ; item ] ->
                 dispatch <| ContextMenuItemClick(menuType, item, dispatch)
-            | _ -> printfn "Unexpected browser context-menu callback argument.")
+            | _ -> Log.warn "Unexpected browser context-menu callback argument.")
         { new System.IDisposable with member _.Dispose() = () }
     // Why does this not work in production?
     // let periodicMemoryCheckCommand dispatch =
