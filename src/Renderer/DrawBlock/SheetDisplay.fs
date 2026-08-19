@@ -97,6 +97,12 @@ let onCanvasWheel (dispatch: ModelType.Msg -> unit) (e: Browser.Types.Event) =
             if abs (zoomFactor - 1.0) > 0.0001 then
                 dispatch (ModelType.Sheet (PreciseZoom zoomFactor))
 
+/// Clicking the canvas should move keyboard focus away from text inputs in the browser.
+let focusCanvas () =
+    document.getElementById("Canvas")
+    |> Option.ofObj
+    |> Option.iter (fun element -> element.focus())
+
 /// Is the mouse button currently down?
 let mDown (ev:Types.MouseEvent) = ev.buttons <> 0.
     
@@ -125,7 +131,6 @@ let displaySvgWithZoom
 
     let sizeInPixels = sprintf "%.2fpx" ((model.CanvasSize * model.Zoom))
 
-    let currentCanvas = document.getElementById("Canvas")
     let cursorText = model.CursorType.Text()
     let firstView = viewIsAfterUpdateScroll
     viewIsAfterUpdateScroll <- false
@@ -149,7 +154,7 @@ let displaySvgWithZoom
               Ref canvasRef.Value
               //Key cursorText // force cursor change to be rendered
               Style ( CSSProp.Cursor cursorText :: style)
-              OnMouseDown (fun ev -> (mouseOp Down ev dispatch headerHeight))
+              OnMouseDown (fun ev -> focusCanvas(); mouseOp Down ev dispatch headerHeight)
               OnMouseUp (fun ev -> (mouseOp Up ev dispatch headerHeight))
               OnMouseMove (fun ev -> mouseOp (if mDown ev then Drag else Move) ev dispatch headerHeight)
               // Read the position when the event fires. A programmatic zoom correction can happen
