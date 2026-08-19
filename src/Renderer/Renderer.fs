@@ -392,9 +392,6 @@ let private windowListenerSub (eventName: string) (makeHandler: (Msg -> unit) ->
         { new System.IDisposable with
             member _.Dispose() = Browser.Dom.window.removeEventListener(eventName, handler) }
 
-[<Emit("window.addEventListener('wheel', $0, { capture: true, passive: false })")>]
-let private addGlobalWheelListener (_handler: Browser.Types.WheelEvent -> unit) : unit = jsNative
-
 [<Emit("document.getElementById('Canvas')")>]
 let private getCanvasElement () : Browser.Types.HTMLElement = jsNative
 
