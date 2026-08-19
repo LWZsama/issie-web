@@ -238,6 +238,11 @@ jobs:
                       git checkout --theirs -- src/Renderer/UI/FileUpdate.fs
                       git add src/Renderer/UI/FileUpdate.fs
                       ;;
+                    src/Renderer/UI/Update.fs)
+                      # Keep the browser bridge path for the context-menu update.
+                      git checkout --ours -- src/Renderer/UI/Update.fs
+                      git add src/Renderer/UI/Update.fs
+                      ;;
                     .github/workflows/build.yml|.github/workflows/docs.yml)
                       # These upstream workflows are intentionally removed from the browser port.
                       git rm -- "$conflict"
