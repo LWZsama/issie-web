@@ -149,6 +149,11 @@ const api = {
     processMemory() {
       return Promise.resolve({});
     },
+    // Browsers do not expose Electron's machine-memory API; zero keeps the renderer's
+    // built-in simulation budget in use.
+    systemMemory() {
+      return { total: 0 };
+    },
     ipcListenerCounts() {
       return {};
     },
