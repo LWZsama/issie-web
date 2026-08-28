@@ -1,7 +1,7 @@
 {
   "name": "issie",
   "private": true,
-  "version": "6.1.0",
+  "version": "6.2.1",
   "license": "GPL-3.0-or-later",
   "scripts": {
     "typecheck": "node ../scripts/typecheck-renderer.js",
