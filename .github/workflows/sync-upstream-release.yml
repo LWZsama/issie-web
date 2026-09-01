@@ -124,7 +124,7 @@ jobs:
                 # handler fail-closed if upstream introduces a new overlap in a future release.
                 for conflict in "${conflicts[@]}"; do
                   case "$conflict" in
-                    src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/UI/FileUpdate.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
+                    src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/UI/FileUpdate.fs|src/Renderer/UI/Update.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
                       ;;
                     *)
                       echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
