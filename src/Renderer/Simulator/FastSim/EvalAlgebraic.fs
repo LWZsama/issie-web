@@ -41,6 +41,7 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
     ///  get data feom input i of component
     let inline ins i =
 #if ASSERTS
+        let n = comp.InputLinks.Length
         assertThat
             (i < comp.InputLinks.Length)
             (sprintf
@@ -68,6 +69,7 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
     /// get last cycle data from output i for component
     let inline insOld i =
 #if ASSERTS
+        let n = comp.InputLinks.Length
         assertThat
             (i < comp.InputLinks.Length)
             (sprintf
