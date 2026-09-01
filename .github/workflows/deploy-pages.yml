@@ -19,7 +19,24 @@ concurrency:
 
 jobs:
   build:
+    name: Build ${{ matrix.name }} browser bundle
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both deployed variants use the Release+AOT WASM runtime. The debug
+          # variant only enables the renderer hook used by the external harness.
+          - name: release
+            artifact: browser-release
+            configuration: Release
+            fable_defines: ""
+            run_aot_compilation: "true"
+          - name: debug
+            artifact: browser-debug
+            configuration: Release
+            fable_defines: DEBUG
+            run_aot_compilation: "true"
 
     steps:
       - name: Checkout repository
@@ -40,9 +57,6 @@ jobs:
       - name: Restore .NET WASM workload
         run: dotnet workload restore web/wasm/Issie.Sidecar.Wasm.Host.csproj
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
       - name: Install npm dependencies
         run: npm ci --prefix web --ignore-scripts
 
@@ -53,15 +67,47 @@ jobs:
         run: npm --prefix web run typecheck
 
       - name: Build browser bundle
+        env:
+          ISSIE_WEB_BUILD_CONFIGURATION: ${{ matrix.configuration }}
+          ISSIE_WEB_FABLE_DEFINES: ${{ matrix.fable_defines }}
+          ISSIE_WEB_RUN_AOT_COMPILATION: ${{ matrix.run_aot_compilation }}
         run: npm --prefix web run build
+
+      - name: Upload browser artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: web/build
+          include-hidden-files: true
+          if-no-files-found: error
+
+  assemble:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download release browser artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-release
+          path: site
+
+      - name: Download debug browser artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: browser-debug
+          path: site/debug
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: web/build
+          path: site
 
   deploy:
-    needs: build
+    needs: assemble
     runs-on: ubuntu-latest
     environment:
       name: github-pages
