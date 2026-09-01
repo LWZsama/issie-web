@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Issie.Sidecar.Wasm.Host'">
+    <BaseIntermediateOutputPath>obj-host\</BaseIntermediateOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj\**;obj-host\**</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>
