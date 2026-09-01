@@ -5,6 +5,18 @@ const rootDir = path.resolve(__dirname, "..");
 const webDir = path.join(rootDir, "web");
 const buildDir = path.join(webDir, "build");
 const generatedDir = path.join(rootDir, ".web-generated", "renderer");
+const wasmProject = path.join(webDir, "wasm", "Issie.Sidecar.Wasm.Host.csproj");
+const wasmBuildDir = path.join(buildDir, "wasm");
+const wasmAppBundleDir = path.join(
+  webDir,
+  "wasm",
+  "bin",
+  "Release",
+  "net10.0",
+  "browser-wasm",
+  "AppBundle",
+  "_framework",
+);
 const fsExtra = require(path.join(webDir, "node_modules", "fs-extra"));
 const webpack = require(path.join(webDir, "node_modules", "webpack"));
 process.env.NODE_ENV = process.env.NODE_ENV || "production";
@@ -156,6 +168,19 @@ async function prepareGeneratedRenderer() {
   }
 }
 
+async function prepareWasmRuntime() {
+  await fsExtra.ensureDir(wasmBuildDir);
+  run("dotnet", ["restore", wasmProject, "--configfile", "Nuget.Config"]);
+  run("dotnet", ["publish", wasmProject, "-c", "Release", "--no-restore", "-o", wasmBuildDir]);
+  await fsExtra.copy(wasmAppBundleDir, wasmBuildDir, { overwrite: true });
+
+  for (const fileName of ["main.mjs", "dotnet.boot.js", "dotnet.js"]) {
+    if (!(await fsExtra.pathExists(path.join(wasmBuildDir, fileName)))) {
+      throw new Error(`WASM publish did not produce ${fileName}.`);
+    }
+  }
+}
+
 async function prepareStaticSite() {
   await fsExtra.ensureDir(buildDir);
 
@@ -190,6 +215,7 @@ async function prepareStaticSite() {
   run("dotnet", ["fable", "src/Renderer/Renderer.fsproj", "--outDir", generatedDir, "--noCache"]);
 
   await prepareGeneratedRenderer();
+  await prepareWasmRuntime();
   await buildWebpack();
   await prepareStaticSite();
 })().catch((error) => {

@@ -13,6 +13,7 @@ module.exports = {
   devtool: "cheap-module-source-map",
   entry: [
     path.join(rootDir, "src", "browser-shims", "issie-bridge.js"),
+    path.join(rootDir, "src", "browser-shims", "wasm-sidecar.js"),
     path.join(generatedDir, "Renderer.js"),
   ],
   output: {

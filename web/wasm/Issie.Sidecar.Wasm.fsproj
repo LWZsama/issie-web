@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>issie-sidecar-wasm</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Renderer\Renderer.fsproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\Sidecar\Protocol.fs" Link="Protocol.fs" />
+    <Compile Include="..\..\src\Sidecar\DesignCache.fs" Link="DesignCache.fs" />
+    <Compile Include="..\..\src\Sidecar\SimSession.fs" Link="SimSession.fs" />
+    <Compile Include="WasmHandler.fs" />
+  </ItemGroup>
+  <Import Project="..\..\.paket\Paket.Restore.targets" />
+</Project>
