@@ -341,9 +341,9 @@ jobs:
             });
 
             let deploymentRun = null;
-            // A queued Pages deployment may take longer than the action's single 10-minute
-            // attempt. Deploy Pages retries once, so allow the sync job to wait for both tries.
-            for (let attempt = 0; attempt < 120; attempt += 1) {
+            // AOT browser builds can take over 30 minutes on windows-latest. Allow the sync job
+            // to wait for the build and the deploy retry without timing out first.
+            for (let attempt = 0; attempt < 240; attempt += 1) {
               const runs = (
                 await github.rest.actions.listWorkflowRuns({
                   owner: context.repo.owner,
