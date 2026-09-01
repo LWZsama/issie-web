@@ -236,6 +236,7 @@ src/Renderer/**/*.js
 # Browser build workspace
 /.web-generated/
 /web/build/
+/web/wasm/obj-host/
 /web/node_modules/
 /web/npm-debug.log*
 
