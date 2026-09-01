@@ -8,8 +8,8 @@
     <SelfContained>true</SelfContained>
     <InvariantGlobalization>true</InvariantGlobalization>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- Keep interpreter mode until the current .NET 10 F# project graph can start its AOT output. -->
-    <RunAOTCompilation>false</RunAOTCompilation>
+    <!-- AOT is intentional for the browser Worker; publish time is acceptable. -->
+    <RunAOTCompilation>true</RunAOTCompilation>
     <EnableDefaultWasmAssembliesToBundle>false</EnableDefaultWasmAssembliesToBundle>
     <WasmResolveAssembliesBeforeBuild>true</WasmResolveAssembliesBeforeBuild>
     <AssemblyName>issie-sidecar-wasm-host</AssemblyName>
@@ -20,7 +20,7 @@
   <Target Name="AddWasmAssemblySearchPaths" BeforeTargets="PrepareInputsForWasmBuild">
     <ItemGroup>
       <WasmAssemblySearchPaths Include="$(TargetDir)" />
-        <WasmAssemblySearchPaths Include="$(PublishDir)" Condition="'$(IsPublishing)' == 'true'" />
+      <WasmAssemblySearchPaths Include="$(PublishDir)" Condition="'$(IsPublishing)' == 'true'" />
       <WasmAssemblySearchPaths Include="$(MicrosoftNetCoreAppRuntimePackRidLibTfmDir)" />
     </ItemGroup>
   </Target>
