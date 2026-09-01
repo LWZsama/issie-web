@@ -1,0 +1,11 @@
+{
+  "wasmHostProperties": {
+    "perHostConfig": [
+      {
+        "name": "v8",
+        "js-path": "main.mjs",
+        "Host": "v8"
+      }
+    ]
+  }
+}
