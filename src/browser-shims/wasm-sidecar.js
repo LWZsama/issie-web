@@ -8,6 +8,8 @@ const workerUrl = () => new URL("wasm/main.mjs", document.baseURI);
 let currentDesignFrames = [];
 let latestDesignFrames = [];
 const sockets = new Set();
+let runtime = null;
+let activeSocket = null;
 
 function frameBytes(value) {
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
@@ -33,6 +35,60 @@ function rememberDesignFrame(frame) {
   }
 }
 
+function startRuntime() {
+  let resolveReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const worker = new Worker(workerUrl(), {
+    type: "module",
+    name: "issie-dotnet-simulation",
+  });
+  const state = {
+    worker,
+    ready,
+    status: "starting",
+    failed: false,
+    fail(message) {
+      if (state.failed) return;
+      state.failed = true;
+      state.status = "failed";
+      worker.terminate();
+      if (runtime === state) runtime = null;
+      const error = message instanceof Error ? message : new Error(message);
+      rejectReady(error);
+      activeSocket?.fail(error.message);
+    },
+  };
+
+  worker.onmessage = (event) => {
+    const data = event.data;
+
+    if (data && data.issieWasmReady) {
+      state.status = "ready";
+      resolveReady();
+    } else if (data && data.issieWasmError) {
+      state.fail(data.issieWasmError);
+    } else if (activeSocket && activeSocket.readyState !== WasmSidecarSocket.CLOSED) {
+      activeSocket.receive(data);
+    }
+  };
+  worker.onerror = (event) => state.fail(event.message || "WASM sidecar worker failed");
+  worker.onmessageerror = () => state.fail("WASM sidecar worker could not decode a message");
+
+  ready.catch(() => {
+    if (runtime === state) runtime = null;
+  });
+  return state;
+}
+
+function ensureRuntime() {
+  if (runtime === null) runtime = startRuntime();
+  return runtime;
+}
+
 class WasmSidecarSocket {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -47,26 +103,24 @@ class WasmSidecarSocket {
     this.onmessage = null;
     this.onerror = null;
     this.onclose = null;
-    this.worker = new Worker(workerUrl(), {
-      type: "module",
-      name: "issie-dotnet-simulation",
-    });
+    this.runtime = ensureRuntime();
+    this.worker = this.runtime.worker;
+    activeSocket = this;
     sockets.add(this);
 
-    this.worker.onmessage = (event) => {
-      const data = event.data;
+    this.runtime.ready
+      .then(() => this.open())
+      .catch((error) => this.fail(error.message || String(error)));
+  }
 
-      if (data && data.issieWasmReady) {
-        this.readyState = WasmSidecarSocket.OPEN;
-        queueMicrotask(() => this.onopen?.({ target: this }));
-      } else if (data && data.issieWasmError) {
-        this.fail(data.issieWasmError);
-      } else {
-        this.onmessage?.({ data, target: this });
-      }
-    };
-    this.worker.onerror = (event) => this.fail(event.message || "WASM sidecar worker failed");
-    this.worker.onmessageerror = () => this.fail("WASM sidecar worker could not decode a message");
+  open() {
+    if (this.readyState !== WasmSidecarSocket.CONNECTING) return;
+    this.readyState = WasmSidecarSocket.OPEN;
+    queueMicrotask(() => this.onopen?.({ target: this }));
+  }
+
+  receive(data) {
+    this.onmessage?.({ data, target: this });
   }
 
   send(value) {
@@ -86,7 +140,7 @@ class WasmSidecarSocket {
   close() {
     if (this.readyState === WasmSidecarSocket.CLOSED) return;
     this.readyState = WasmSidecarSocket.CLOSING;
-    this.worker.terminate();
+    if (activeSocket === this) activeSocket = null;
     this.readyState = WasmSidecarSocket.CLOSED;
     sockets.delete(this);
     this.onclose?.({ target: this });
@@ -103,6 +157,8 @@ const sidecarApi = {
   backend: "dotnet-wasm",
   runtime: "dotnet-wasm-worker",
   workerUrl,
+  prewarm: () => ensureRuntime().ready,
+  workerState: () => runtime?.status || "idle",
   createSocket: () => new WasmSidecarSocket("wasm://issie-sidecar"),
   designFrames: () => latestDesignFrames.map((frame) => new Uint8Array(frame)),
   openSockets: () => sockets.size,
@@ -114,6 +170,11 @@ if (typeof window !== "undefined") {
     port: () => ({ port: 0, token: "wasm" }),
   };
   window.WebSocket = WasmSidecarSocket;
+
+  // Match the desktop app: initialise the simulator while the UI is starting, not on the first
+  // click. The worker keeps all .NET work off the renderer thread, and a failed warm-up is retried
+  // by the first real connection through ensureRuntime().
+  sidecarApi.prewarm().catch(() => {});
 }
 
 module.exports = sidecarApi;
