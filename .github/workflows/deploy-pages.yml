@@ -37,6 +37,9 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Restore .NET WASM workload
+        run: dotnet workload restore web/wasm/Issie.Sidecar.Wasm.Host.csproj
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
