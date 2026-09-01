@@ -41,6 +41,7 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
     ///  get data feom input i of component
     let inline ins i =
 #if ASSERTS
+        let n = comp.InputLinks.Length
         assertThat
             (i < n)
             (sprintf
@@ -68,6 +69,7 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
     /// get last cycle data from output i for component
     let inline insOld i =
 #if ASSERTS
+        let n = comp.InputLinks.Length
         assertThat
             (i < n)
             (sprintf
@@ -349,8 +351,8 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
             <| sprintf
                 "Mux2 %s received two inputs with different widths: (%A) <> (%A)"
                 comp.FullName
-                (expToString exp1)
-                (expToString exp2)
+                (expToKatex exp1)
+                (expToKatex exp2)
 #endif
             let out =
                 if (extractBitFData (Data bitSelect) 1) = 0u then
@@ -366,7 +368,7 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
             <| sprintf
                 "Mux2 %s received two inputs with different widths: (%A) <> (%A)"
                 comp.FullName
-                (expToString exp)
+                (expToKatex exp)
                 bits
 #endif
             let out =
@@ -383,7 +385,7 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
                 "Mux2 %s received two inputs with different widths: (%A) <> (%A)"
                 comp.FullName
                 bits
-                (expToString exp)
+                (expToKatex exp)
 #endif
             let out =
                 if (extractBitFData (Data bitSelect) 1) = 0u then
@@ -419,8 +421,8 @@ let fastReduceFData (maxArraySize: int) (numStep: int) (isClockedReduction: bool
         | fd0, fd1, fd2, fd3, Data bitSelect ->
 #if ASSERTS
             assertThat (
-                bits0.Width = bits1.Width
-                && bits0.Width = bits2.Width
+                fd0.Width = fd1.Width
+                && fd0.Width = fd2.Width
             )
             <| sprintf
                 "Mux4 %s received two inputs with different widths: (%A) <> (%A)"
