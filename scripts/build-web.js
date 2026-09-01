@@ -7,11 +7,16 @@ const buildDir = path.join(webDir, "build");
 const generatedDir = path.join(rootDir, ".web-generated", "renderer");
 const wasmProject = path.join(webDir, "wasm", "Issie.Sidecar.Wasm.Host.csproj");
 const wasmBuildDir = path.join(buildDir, "wasm");
+const buildConfiguration = process.env.ISSIE_WEB_BUILD_CONFIGURATION || "Release";
+const fableDefines = (process.env.ISSIE_WEB_FABLE_DEFINES || "")
+  .split(/[\s,]+/)
+  .filter(Boolean);
+const runAotCompilation = process.env.ISSIE_WEB_RUN_AOT_COMPILATION || "";
 const wasmAppBundleDir = path.join(
   webDir,
   "wasm",
   "bin",
-  "Release",
+  buildConfiguration,
   "net10.0",
   "browser-wasm",
   "AppBundle",
@@ -171,7 +176,11 @@ async function prepareGeneratedRenderer() {
 async function prepareWasmRuntime() {
   await fsExtra.ensureDir(wasmBuildDir);
   run("dotnet", ["restore", wasmProject, "--configfile", "Nuget.Config"]);
-  run("dotnet", ["publish", wasmProject, "-c", "Release", "--no-restore", "-o", wasmBuildDir]);
+  const publishArgs = ["publish", wasmProject, "-c", buildConfiguration, "--no-restore", "-o", wasmBuildDir];
+  if (runAotCompilation) {
+    publishArgs.push(`-p:RunAOTCompilation=${runAotCompilation}`);
+  }
+  run("dotnet", publishArgs);
   await fsExtra.copy(wasmAppBundleDir, wasmBuildDir, { overwrite: true });
 
   for (const fileName of ["main.mjs", "dotnet.boot.js", "dotnet.js"]) {
@@ -212,7 +221,19 @@ async function prepareStaticSite() {
   run("dotnet", ["tool", "restore"]);
   run("dotnet", ["paket", "restore"]);
   run("dotnet", ["restore", "src/Renderer/Renderer.fsproj", "--configfile", "Nuget.Config"]);
-  run("dotnet", ["fable", "src/Renderer/Renderer.fsproj", "--outDir", generatedDir, "--noCache"]);
+  const fableArgs = [
+    "fable",
+    "src/Renderer/Renderer.fsproj",
+    "--outDir",
+    generatedDir,
+    "--noCache",
+    "--configuration",
+    buildConfiguration,
+  ];
+  for (const define of fableDefines) {
+    fableArgs.push("--define", define);
+  }
+  run("dotnet", fableArgs);
 
   await prepareGeneratedRenderer();
   await prepareWasmRuntime();
