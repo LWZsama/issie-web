@@ -7,9 +7,13 @@
     <WasmMainJSPath>main.mjs</WasmMainJSPath>
     <SelfContained>true</SelfContained>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSizeOptimizedLinq>false</UseSizeOptimizedLinq>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- AOT is intentional for the browser Worker; publish time is acceptable. -->
     <RunAOTCompilation>true</RunAOTCompilation>
+    <!-- Spend CI time on runtime speed for the browser-side AOT simulation. -->
+    <WasmBitcodeCompileOptimizationFlag>-O3</WasmBitcodeCompileOptimizationFlag>
+    <EmccLinkOptimizationFlag>-O3</EmccLinkOptimizationFlag>
     <EnableDefaultWasmAssembliesToBundle>false</EnableDefaultWasmAssembliesToBundle>
     <WasmResolveAssembliesBeforeBuild>true</WasmResolveAssembliesBeforeBuild>
     <AssemblyName>issie-sidecar-wasm-host</AssemblyName>
