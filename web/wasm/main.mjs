@@ -25,6 +25,10 @@ try {
   const { dotnet } = await import("./dotnet.js");
   const { getAssemblyExports, getConfig } = await dotnet
     .withDiagnosticTracing(false)
+    // The published manifest carries integrity hashes, so let the browser reuse valid runtime
+    // assets between page loads. The default no-cache fetch otherwise turns every cold page load
+    // into another full .NET WASM download.
+    .withConfig({ disableNoCacheFetch: true })
     .create();
   const config = getConfig();
   const exports = await getAssemblyExports(config.mainAssemblyName);
