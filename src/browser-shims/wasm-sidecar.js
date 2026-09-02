@@ -14,6 +14,9 @@ let activeSocket = null;
 function frameBytes(value) {
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (ArrayBuffer.isView(value)) {
+    if (value.byteOffset === 0 && value.byteLength === value.buffer.byteLength) {
+      return new Uint8Array(value.buffer);
+    }
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   }
   throw new TypeError("WASM sidecar expects a binary frame");
@@ -129,12 +132,16 @@ class WasmSidecarSocket {
     }
 
     const bytes = frameBytes(value);
-    const copy = new Uint8Array(bytes);
-    if ((copy[0] & 0x3f) === 4) {
-      rememberDesignFrame(copy);
+    if ((bytes[0] & 0x3f) === 4) {
+      rememberDesignFrame(bytes);
     }
 
-    this.worker.postMessage(copy.buffer, [copy.buffer]);
+    if (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+      this.worker.postMessage(bytes.buffer, [bytes.buffer]);
+    } else {
+      const transferable = bytes.slice();
+      this.worker.postMessage(transferable.buffer, [transferable.buffer]);
+    }
   }
 
   close() {
