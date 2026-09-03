@@ -109,7 +109,7 @@ module internal WasmReducers =
     let inline private oldR (region: Region) (step: StepIndex) =
         if step.NumStep = 0 then 0u else getR region step.SimStepOld
 
-    let inline regionFor (io: IOArray) : Region =
+    let regionFor (io: IOArray) : Region =
         { A = NativePtr.add (pointerFor io.UInt32Slab) io.StepBase }
 
     let inline private inU (fc: FastComponent) (index: int) = regionFor fc.InputLinks[index]
