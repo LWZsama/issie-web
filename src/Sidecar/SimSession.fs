@@ -102,14 +102,19 @@ let build (design: SimpleDesign) (maxArraySize: int) : string =
 /// Run the session's simulation towards `targetCycle`, giving up after `timeoutMs` (0 = no
 /// budget). The reply says where the clock got to; the caller repeats until done - each call
 /// is one SimLog record, mirroring the renderer's progress loop.
-let run (askedEpoch: int) (targetCycle: int) (timeoutMs: int) : string =
+let runWith
+    (runner: float option -> int -> SimTypes.FastSimulation -> SimTypes.RunOutcome)
+    (askedEpoch: int)
+    (targetCycle: int)
+    (timeoutMs: int)
+    : string =
     match checkEpoch askedEpoch, session with
     | Error reply, _ -> reply
     | _, None -> errorReply "no simulation built - send SimBuild first"
     | Ok(), Some(fs, _) ->
         let timeout = if timeoutMs <= 0 then None else Some(float timeoutMs)
         let sw = System.Diagnostics.Stopwatch.StartNew()
-        let outcome = FastRun.runFastSimulation timeout targetCycle fs
+        let outcome = runner timeout targetCycle fs
         sw.Stop()
 
         // The run says whether it finished; the clock is reported beside it rather than compared
@@ -122,6 +127,26 @@ let run (askedEpoch: int) (targetCycle: int) (timeoutMs: int) : string =
             (firstValidCycle fs)
             (outcome = SimTypes.RunCompleted)
             sw.Elapsed.TotalMilliseconds
+
+let run (askedEpoch: int) (targetCycle: int) (timeoutMs: int) : string =
+    runWith FastRun.runFastSimulation askedEpoch targetCycle timeoutMs
+
+/// Prepare a read without making the desktop session know about a browser's storage policy.
+///
+/// The Web Worker may keep only a bounded circular history and replay an older window before it
+/// answers. The desktop sidecar has no such policy, so the preparer is supplied by the host.
+let prepareRead
+    (preparer: SimTypes.FastSimulation -> int -> int -> Result<unit, string>)
+    (askedEpoch: int)
+    (startCycle: int)
+    (lastCycle: int)
+    : Result<unit, string> =
+    if askedEpoch <> currentEpoch () then
+        Error $"stale session: command names epoch {askedEpoch}, this sidecar holds {currentEpoch ()}"
+    else
+        match session with
+        | None -> Error "no simulation built - send SimBuild first"
+        | Some(fs, _) -> preparer fs startCycle lastCycle
 
 /// The digest text for the design under the deterministic stimulus: builds its own simulation
 /// (SimDigest fixes the array size so the text is identical wherever it is computed), so it
@@ -144,7 +169,8 @@ let digest (design: SimpleDesign) (ticks: int) : string =
 /// answered from a simulation of a design that has been replaced.
 ///
 /// The epoch counter is untouched, so the next build takes a number never used before.
-let discardForNewDesign () = session <- None
+let discardForNewDesign () =
+    session <- None
 
 /// Drop the session so its (potentially large) step arrays can be collected.
 let endSession (askedEpoch: int) : string =
@@ -175,7 +201,11 @@ let private word (body: byte array) (offset: int) : uint32 =
 /// Set top-level input values at a cycle: uint32 cycle, uint32 count, then per input uint32
 /// component id + value as two uint32 words. The value reaches the simulator through the same
 /// changeInput call the renderer uses, masked to the input's width by FastData construction.
-let setInputs (askedEpoch: int) (body: byte array) : string =
+let setInputsWith
+    (onChange: int -> ComponentId -> bigint -> unit)
+    (askedEpoch: int)
+    (body: byte array)
+    : string =
     match checkEpoch askedEpoch, session with
     | Error reply, _ -> reply
     | _, None -> errorReply "no simulation built - send SimBuild first"
@@ -198,10 +228,15 @@ let setInputs (askedEpoch: int) (body: byte array) : string =
                 | None -> errorReply $"component {compId} is not a top-level input of the simulation"
                 | Some width ->
                     let fd = NumberHelpers.convertBigintToFastData width value
-                    FastExtract.changeInput (ComponentId compId) (SimGraphTypes.IData fd) cycle fs
+                    let cid = ComponentId compId
+                    FastExtract.changeInput cid (SimGraphTypes.IData fd) cycle fs
+                    onChange cycle cid value
                     apply (i + 1) (offset + 12)
 
         apply 0 8
+
+let setInputs (askedEpoch: int) (body: byte array) : string =
+    setInputsWith (fun _ _ _ -> ()) askedEpoch body
 
 /// Read sampled output data: for each signal, `samples` values taken every `rep` cycles from
 /// `start` - the (StartCycle, SamplingZoom, ShownCycles) triple the waveform viewer's own
