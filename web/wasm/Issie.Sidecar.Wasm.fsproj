@@ -13,6 +13,8 @@
     <Compile Include="..\..\src\Sidecar\Protocol.fs" Link="Protocol.fs" />
     <Compile Include="..\..\src\Sidecar\DesignCache.fs" Link="DesignCache.fs" />
     <Compile Include="..\..\src\Sidecar\SimSession.fs" Link="SimSession.fs" />
+    <Compile Include="WasmReducers.fs" />
+    <Compile Include="WasmRun.fs" />
     <Compile Include="WasmHandler.fs" />
   </ItemGroup>
   <Import Project="..\..\.paket\Paket.Restore.targets" />
