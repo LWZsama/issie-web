@@ -34,6 +34,26 @@ module private Handler =
     let private bodyAfter (body: byte array) (offset: int) =
         if body.Length >= offset then body[offset..] else [||]
 
+    let private lastCycle (startCycle: int) (rep: int) (samples: int) =
+        if rep < 1 || samples <= 1 then
+            startCycle
+        else
+            let last = int64 startCycle + int64 (samples - 1) * int64 rep
+            if last > int64 Int32.MaxValue then Int32.MaxValue else int last
+
+    let private readableResponse
+        (header: byte array)
+        (body: byte array)
+        (startCycle: int)
+        (lastCycle: int)
+        (read: unit -> Result<byte array, string>) =
+        match SimSession.prepareRead WasmRun.ensureRange (argAt body 0) startCycle lastCycle with
+        | Error e -> errorResponse header e
+        | Ok() ->
+            match read () with
+            | Ok payload -> bytesResponse header payload
+            | Error e -> errorResponse header e
+
     let private sendDesign (header: byte array) (body: byte array) =
         let stopwatch = Diagnostics.Stopwatch.StartNew()
         let sheetIndex = argAt body 0
@@ -53,6 +73,7 @@ module private Handler =
                     let soFar =
                         match sheetIndex, staged with
                         | 0, _ ->
+                            WasmRun.clearCache ()
                             SimSession.discardForNewDesign ()
                             []
                         | _, Some(_, pairs) -> pairs
@@ -111,11 +132,15 @@ module private Handler =
                 let reply =
                     match lastDesign with
                     | None -> "{\"error\":\"no design received - send SendDesign first\"}"
-                    | Some design -> SimSession.build design (max 2 (argAt body 0))
+                    | Some design ->
+                        WasmRun.clearCache ()
+                        SimSession.build design (WasmRun.boundedArraySize (argAt body 0))
 
                 textResponse header reply
             | Protocol.SimRun ->
-                textResponse header (SimSession.run (argAt body 0) (argAt body 4) (argAt body 8))
+                textResponse
+                    header
+                    (SimSession.runWith WasmRun.run (argAt body 0) (argAt body 4) (argAt body 8))
             | Protocol.SimDigest ->
                 let reply =
                     match lastDesign with
@@ -123,26 +148,58 @@ module private Handler =
                     | Some design -> SimSession.digest design (max 1 (argAt body 0))
 
                 textResponse header reply
-            | Protocol.SimEnd -> textResponse header (SimSession.endSession (argAt body 0))
+            | Protocol.SimEnd ->
+                let reply = SimSession.endSession (argAt body 0)
+
+                if reply = "{\"ended\":true}" then
+                    WasmRun.clearCache ()
+
+                textResponse header reply
             | Protocol.SimLog -> textResponse header (SimLog.recentJson ())
             | Protocol.SimSetInputs ->
-                textResponse header (SimSession.setInputs (argAt body 0) (bodyAfter body 4))
+                textResponse
+                    header
+                    (SimSession.setInputsWith
+                         WasmRun.recordInput
+                         (argAt body 0)
+                         (bodyAfter body 4))
             | Protocol.SimRead ->
-                match SimSession.read (argAt body 0) (bodyAfter body 4) with
-                | Ok payload -> bytesResponse header payload
-                | Error e -> errorResponse header e
+                let payload = bodyAfter body 4
+                let startCycle = argAt payload 0
+                let rep = argAt payload 4
+                let samples = argAt payload 8
+
+                readableResponse
+                    header
+                    body
+                    startCycle
+                    (lastCycle startCycle rep samples)
+                    (fun () -> SimSession.read (argAt body 0) payload)
             | Protocol.SimReadDrivers ->
-                match SimSession.readDrivers (argAt body 0) (bodyAfter body 4) with
-                | Ok payload -> bytesResponse header payload
-                | Error e -> errorResponse header e
+                let payload = bodyAfter body 4
+                let startCycle = argAt payload 0
+                let rep = argAt payload 4
+                let samples = argAt payload 8
+
+                readableResponse
+                    header
+                    body
+                    startCycle
+                    (lastCycle startCycle rep samples)
+                    (fun () -> SimSession.readDrivers (argAt body 0) payload)
             | Protocol.SimPorts ->
                 match SimSession.ports (argAt body 0) (bodyAfter body 4) with
                 | Ok payload -> bytesResponse header payload
                 | Error e -> errorResponse header e
             | Protocol.SimReadRam ->
-                match SimSession.readRam (argAt body 0) (bodyAfter body 4) with
-                | Ok payload -> bytesResponse header payload
-                | Error e -> errorResponse header e
+                let payload = bodyAfter body 4
+                let cycle = argAt payload 0
+                readableResponse
+                    header
+                    body
+                    cycle
+                    cycle
+                    (fun () -> SimSession.readRam (argAt body 0) payload)
             | command -> errorResponse header $"unknown command {command}"
         with e ->
             errorResponse header $"the WASM sidecar could not answer command {header[0]}: {e.Message}"

@@ -61,6 +61,7 @@ function startRuntime() {
       worker.terminate();
       if (runtime === state) runtime = null;
       const error = message instanceof Error ? message : new Error(message);
+      console.error("Issie .NET WASM sidecar failed", error);
       rejectReady(error);
       activeSocket?.fail(error.message);
     },
