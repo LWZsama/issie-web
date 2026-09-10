@@ -123,8 +123,8 @@ jobs:
                 # Validate the complete conflict set before changing any file. This keeps the
                 # handler fail-closed if upstream introduces a new overlap in a future release.
                 for conflict in "${conflicts[@]}"; do
-                  case "$conflict" in
-                    src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/UI/FileUpdate.fs|src/Renderer/UI/Update.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
+                    case "$conflict" in
+                    src/Renderer/DrawBlock/SheetDisplay.fs|src/Renderer/Interface/FilesIO.fs|src/Renderer/Renderer.fs|src/Renderer/Simulator/FastSim/EvalAlgebraic.fs|src/Renderer/UI/FileUpdate.fs|src/Renderer/UI/Update.fs|.github/workflows/build.yml|.github/workflows/docs.yml)
                       ;;
                     *)
                       echo "Unexpected rebase conflict(s): ${conflicts[*]}" >&2
@@ -187,6 +187,20 @@ jobs:
               "    BrowserSession.installBeforeUnloadWarning model",
             ].join(eol) + eol;
             resolved = source.replace(pattern, () => replacement);
+          } else if (
+            matches.length === 1
+            && matches[0][0].includes("let subResize")
+            && source.includes("shouldHandleCanvasShortcuts")
+            && source.includes("subBrowserContextMenuCommand")
+          ) {
+            // Upstream now keeps the resize subscription while the browser event changes apply
+            // cleanly around it. Preserve that upstream block and keep the browser changes which
+            // are already outside the conflict marker.
+            const head = matches[0][0].match(/^<<<<<<< HEAD\r?\n([\s\S]*?)^=======\r?\n/m);
+            if (!head) {
+              throw new Error("Unexpected Renderer.fs resize conflict shape.");
+            }
+            resolved = source.replace(pattern, () => head[1]);
           } else {
             if (
               matches.length !== 3
@@ -232,6 +246,54 @@ jobs:
           fs.writeFileSync(path, resolved);
           NODE
                       git add src/Renderer/Renderer.fs
+                      ;;
+                    src/Renderer/DrawBlock/SheetDisplay.fs)
+                      # Keep the upstream focus-ring fix and the browser port's focus-on-click
+                      # behaviour when both touch the canvas attributes.
+                      node <<'NODE'
+          const fs = require("fs");
+          const path = "src/Renderer/DrawBlock/SheetDisplay.fs";
+          const source = fs.readFileSync(path, "utf8");
+          const eol = source.includes("\r\n") ? "\r\n" : "\n";
+          const pattern = /^<<<<<<< HEAD\r?\n[\s\S]*?^=======\r?\n[\s\S]*?^>>>>>>> [^\r\n]*(?:\r?\n|$)/gm;
+          const matches = [...source.matchAll(pattern)];
+          if (
+            matches.length !== 1
+            || !matches[0][0].includes('CSSProp.Outline "none"')
+            || !matches[0][0].includes("focusCanvas(); mouseOp")
+            || !source.includes("let focusCanvas ()")
+          ) {
+            throw new Error("Unexpected SheetDisplay.fs focus conflict shape.");
+          }
+          const replacement = [
+            '              Style ( CSSProp.Cursor cursorText :: CSSProp.Outline "none" :: style)',
+            '              OnMouseDown (fun ev -> focusCanvas(); mouseOp Down ev dispatch headerHeight)',
+          ].join(eol) + eol;
+          fs.writeFileSync(path, source.replace(pattern, () => replacement));
+          NODE
+                      git add src/Renderer/DrawBlock/SheetDisplay.fs
+                      ;;
+                    src/Renderer/Simulator/FastSim/EvalAlgebraic.fs)
+                      # Keep the upstream Mux4 width check; the surrounding ASSERTS changes from
+                      # the browser port have already merged outside this marker.
+                      node <<'NODE'
+          const fs = require("fs");
+          const path = "src/Renderer/Simulator/FastSim/EvalAlgebraic.fs";
+          const source = fs.readFileSync(path, "utf8");
+          const eol = source.includes("\r\n") ? "\r\n" : "\n";
+          const pattern = /^<<<<<<< HEAD\r?\n[\s\S]*?^=======\r?\n[\s\S]*?^>>>>>>> [^\r\n]*(?:\r?\n|$)/gm;
+          const matches = [...source.matchAll(pattern)];
+          if (
+            matches.length !== 1
+            || !matches[0][0].includes("fd0.Width = fd3.Width")
+            || !source.includes("| Mux4 ->")
+          ) {
+            throw new Error("Unexpected EvalAlgebraic.fs Mux4 conflict shape.");
+          }
+          const replacement = "                && fd0.Width = fd3.Width" + eol;
+          fs.writeFileSync(path, source.replace(pattern, () => replacement));
+          NODE
+                      git add src/Renderer/Simulator/FastSim/EvalAlgebraic.fs
                       ;;
                     src/Renderer/UI/FileUpdate.fs)
                       # The browser port intentionally replaces the desktop project browser.
@@ -284,6 +346,39 @@ jobs:
             exit 1
           fi
 
+          # The array-sheet release added ArrayInfo to SheetInfo. The browser port's save helper
+          # predates that field and can merge cleanly while still leaving one record incomplete.
+          # Patch that reviewed compatibility gap after every rebase, and fail closed if either
+          # the upstream field or the expected old constructor changes shape.
+          node <<'NODE'
+          const fs = require("fs");
+          const commonTypes = fs.readFileSync("src/Renderer/Common/CommonTypes.fs", "utf8");
+          if (commonTypes.includes("ArrayInfo: ArrayInfo option")) {
+            const path = "src/Renderer/Interface/FilesIO.fs";
+            const source = fs.readFileSync(path, "utf8");
+            const missing =
+              "        let sheetInfo: SheetInfo = {Form=ldc.Form;Description=ldc.Description; "
+              + "ParameterDefinitions=ldc.LCParameterSlots; IsTopSheet = Some ldc.IsTopSheet}";
+            const compatible =
+              "        let sheetInfo: SheetInfo = {Form=ldc.Form;Description=ldc.Description; "
+              + "ParameterDefinitions=ldc.LCParameterSlots; IsTopSheet = Some ldc.IsTopSheet; "
+              + "ArrayInfo = ldc.ArrayInfo}";
+            const occurrences = source.split(missing).length - 1;
+            if (occurrences > 1) {
+              throw new Error("FilesIO.fs contains multiple legacy SheetInfo save constructors.");
+            }
+            if (occurrences === 1) {
+              fs.writeFileSync(path, source.replace(missing, compatible));
+              console.log("Added ArrayInfo to the browser SheetInfo save constructor.");
+            } else if (!source.includes(compatible)) {
+              throw new Error("Expected FilesIO.fs SheetInfo save constructor shape was not found.");
+            }
+          } else {
+            console.log("This upstream release has no ArrayInfo SheetInfo field.");
+          }
+          NODE
+          git add src/Renderer/Interface/FilesIO.fs
+
           release_version="${UPSTREAM_TAG#v}"
           npm --prefix web version "$release_version" --allow-same-version --no-git-tag-version --ignore-scripts
 
@@ -304,6 +399,8 @@ jobs:
 
           if ! git diff --quiet -- web/package.json web/package-lock.json; then
             git add web/package.json web/package-lock.json
+          fi
+          if ! git diff --cached --quiet; then
             git commit -m "chore(release): sync browser version to $UPSTREAM_TAG"
           fi
 
