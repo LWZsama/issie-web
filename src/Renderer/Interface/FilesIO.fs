@@ -1147,7 +1147,7 @@ let saveAllProjectFilesFromLoadedComponentsToDisk (proj: Project) =
         let name = ldc.Name
         let state = ldc.CanvasState
         let waveInfo = ldc.WaveInfo
-        let sheetInfo: SheetInfo = {Form=ldc.Form;Description=ldc.Description; ParameterDefinitions=ldc.LCParameterSlots; IsTopSheet = Some ldc.IsTopSheet}
+        let sheetInfo: SheetInfo = {Form=ldc.Form;Description=ldc.Description; ParameterDefinitions=ldc.LCParameterSlots; IsTopSheet = Some ldc.IsTopSheet; ArrayInfo = ldc.ArrayInfo}
         saveStateToFile proj.ProjectPath name (state,waveInfo,Some sheetInfo) |> ignore
         persistFileToExternalStorageAsync (pathJoin [| proj.ProjectPath; name + ".dgm" |]) |> Promise.start
         removeFileWithExtn ".dgmauto" proj.ProjectPath name)
