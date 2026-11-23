@@ -1,7 +1,6 @@
 import { Workspace, normal } from "./workspace.mjs";
 import { contextMenu } from "./menu.mjs";
 import { prewarmSimulationWorker } from "./socket.mjs";
-import { decodeProjectFragment } from "../static/project-link.mjs";
 
 const errors = [];
 let notify;
@@ -155,8 +154,12 @@ const host = {
     let serial = 0;
     async function read() {
       const request = ++serial;
+      const hash = location.hash;
+      if (!hash.startsWith("#project=")) return;
       try {
-        const project = await decodeProjectFragment(location.hash);
+        const moduleUrl = new URL("static/project-link.mjs", document.baseURI);
+        const { decodeProjectFragment } = await import(/* webpackIgnore: true */ moduleUrl.href);
+        const project = await decodeProjectFragment(hash);
         if (project && request === serial) offer(() => {
           if (request !== serial) return null;
           if (offeredRoot !== current) workspace.release(offeredRoot);

@@ -4,5 +4,8 @@
   "scripts": {
     "build": "node build.cjs",
     "test": "node --test project-link.test.mjs workspace.test.mjs"
+  },
+  "dependencies": {
+    "brotli-wasm": "3.0.1"
   }
 }

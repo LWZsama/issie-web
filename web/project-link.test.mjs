@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
+import { brotliCompressSync, constants, gzipSync } from "node:zlib";
 import test from "node:test";
 import { createProjectUrl, decodeProjectFragment } from "../static/project-link.mjs";
 
@@ -15,8 +15,16 @@ test("a producer can share nested files and sparse RAM without changing their te
   const site = "https://example.test/issie/?lang=en#old";
   const url = new URL(await createProjectUrl(project, site));
   assert.equal(url.search, "?lang=en");
-  assert.match(url.hash, /^#project=v1\.gz\.[A-Za-z0-9_-]+$/);
+  const quality11 = brotliCompressSync(JSON.stringify(project), { params: { [constants.BROTLI_PARAM_QUALITY]: 11 } });
+  assert.equal(url.hash, "#project=" + quality11.toString("base64url"));
   assert.deepEqual(await decodeProjectFragment(url.hash), project);
+});
+
+test("existing tagged gzip and Brotli project links still open", async () => {
+  const bytes = JSON.stringify(project);
+  for (const [codec, compressed] of [["gz", gzipSync(bytes)], ["br", brotliCompressSync(bytes)]]) {
+    assert.deepEqual(await decodeProjectFragment(`#project=v1.${codec}.${compressed.toString("base64url")}`), project);
+  }
 });
 
 test("the CLI packs every sheet of the upstream CPU and its actual ROM source", async () => {
@@ -39,7 +47,7 @@ test("unrelated fragments leave startup alone and invalid project links reject",
   for (const hash of ["", "#demo=3&code=1234", "#code=1234", "#other"]) {
     assert.equal(await decodeProjectFragment(hash), null);
   }
-  for (const hash of ["#project=", "#project=v2.gz.AAAA", "#project=v1.zip.AAAA", "#project=v1.gz.AAAA"]) {
+  for (const hash of ["#project=", "#project=v2.gz.AAAA", "#project=v1.zip.AAAA", "#project=v1.gz.AAAA", "#project=AAA+", "#project=A"]) {
     await assert.rejects(decodeProjectFragment(hash));
   }
   const valid = new URL(await createProjectUrl(project)).hash;
@@ -48,7 +56,7 @@ test("unrelated fragments leave startup alone and invalid project links reject",
 
 test("the decoder checks paths, conflicting entries and expanded size before mounting", async () => {
   function wire(value) {
-    return "#project=v1.gz." + gzipSync(JSON.stringify(value)).toString("base64url");
+    return "#project=" + brotliCompressSync(JSON.stringify(value), { params: { [constants.BROTLI_PARAM_QUALITY]: 1 } }).toString("base64url");
   }
   for (const bad of ["../bad.ram", "/other/main.dgm", "path\\file", "C:/data", "./main", "a//b", "a\0b"]) {
     const unsafe = { name: "CPU", files: { "main.dgm": "{}", [bad]: "" } };

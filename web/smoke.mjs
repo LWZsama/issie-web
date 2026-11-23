@@ -4,11 +4,12 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { brotliCompressSync, constants } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
+async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedLink) {
   function check(value, message) { if (!value) throw new Error(message); }
   const delay = ms => new Promise(r => setTimeout(r, ms));
   const frame = document.querySelector("iframe");
@@ -34,7 +35,10 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
     check(response.ok, "Missing offline asset: " + file);
     await response.arrayBuffer();
   }));
-  const { createProjectUrl } = await import("./static/project-link.mjs");
+  const { createProjectUrl, decodeProjectFragment } = await import("./static/project-link.mjs");
+  let limitError;
+  try { await decodeProjectFragment(oversizedLink); } catch (error) { limitError = error.message; }
+  check(limitError?.includes("32 MiB"), "Offline Brotli decoder did not enforce the expanded size limit");
   frame.src = "./#demo=3&code=1234";
   await until(() => app.issieDev?.state().ready);
   check(app.document.title === "Issie Web", "Wrong tab title");
@@ -116,7 +120,9 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
   const prefix = "demos/1fulladder/";
   const files = Object.fromEntries(Object.entries(assets).filter(([p]) => p.startsWith(prefix)).map(([p, v]) => [p.slice(prefix.length), v]));
   files["rtl/code.ram"] = "0x00 0x1101\n0x20 0xc0fb";
-  frame.src = await createProjectUrl({ name: "Parity", files }, app.location.href);
+  const link = new URL(await createProjectUrl({ name: "Parity", files }, app.location.href));
+  check(/^#project=[A-Za-z0-9_-]+$/.test(link.hash), "Expected an untagged Brotli link");
+  frame.src = link.href;
   await until(() => app.issieDev?.state().openSheet === "fulladd");
   app.issieBridge.ipc.showContextMenu("ComponentWaveSim");
   check([...app.document.querySelectorAll('[role="menuitem"]')].some(b => b.firstChild.textContent === "Add waveforms to viewer"), "Wave menu drift");
@@ -212,6 +218,9 @@ const directory = path.join(path.dirname(fileURLToPath(import.meta.url)), "build
 const assembly = process.argv[2];
 if (!assembly) throw new Error("Pass the path to the upstream desktop issie-sidecar.dll.");
 const sitePath = "/issie-web/";
+const oversizedLink = "#project=" + brotliCompressSync(Buffer.alloc(32 * 1024 * 1024 + 1), {
+  params: { [constants.BROTLI_PARAM_QUALITY]: 1 },
+}).toString("base64url");
 const files = (await readdir(directory, { recursive: true, withFileTypes: true }))
   .filter(entry => entry.isFile())
   .map(entry => {
@@ -246,7 +255,7 @@ try {
         const endpoint = `ws://127.0.0.1:${port}/?token=${token}`;
         res.setHeader("Content-Type", "text/html"); res.end(`<iframe style="width:1600px;height:950px"></iframe><script type="module">
           const send = value => fetch('/result', {method:'POST',body:JSON.stringify(value)});
-          (${browserCheck.toString()})(${JSON.stringify(endpoint)},${JSON.stringify(demos)},${JSON.stringify(files)}).then(ok => send({ok}), e => send({error:String(e.stack||e)}))</script>`);
+          (${browserCheck.toString()})(${[endpoint, demos, files, oversizedLink].map(value => JSON.stringify(value)).join(",")}).then(ok => send({ok}), e => send({error:String(e.stack||e)}))</script>`);
       } else if (url.pathname === "/offline" && req.method === "POST") {
         offline = true; res.writeHead(204); res.end();
       } else if (url.pathname === "/result" && req.method === "POST") {

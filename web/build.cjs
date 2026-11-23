@@ -25,6 +25,13 @@ function staticFiles() {
   collect("demos");
   collect("libraries");
   fs.cpSync(assets, path.join(output, "static"), { recursive: true });
+  const brotli = path.dirname(require.resolve("brotli-wasm"));
+  const codec = path.join(output, "static", "brotli");
+  fs.mkdirSync(codec, { recursive: true });
+  for (const file of ["brotli_wasm.js", "brotli_wasm_bg.wasm"]) {
+    fs.copyFileSync(path.join(brotli, "pkg.web", file), path.join(codec, file));
+  }
+  fs.copyFileSync(path.join(brotli, "LICENSE"), path.join(codec, "LICENSE"));
   fs.writeFileSync(path.join(output, "static", "workspace.json"), JSON.stringify(files));
   fs.copyFileSync(path.join(root, "public/icon.ico"), path.join(output, "favicon.ico"));
   for (const name of ["manifest.webmanifest", "icon-192.png"]) {
@@ -53,9 +60,10 @@ function writeServiceWorker() {
 }
 
 async function build() {
-  if (!fs.existsSync(path.join(root, "node_modules"))) {
-    if (!process.env.npm_execpath) throw new Error("Run npm ci in the repository root before building.");
-    run(process.execPath, [process.env.npm_execpath, "ci"]);
+  for (const [directory, dependency] of [[root, "webpack"], [__dirname, "brotli-wasm"]]) {
+    if (fs.existsSync(path.join(directory, "node_modules", dependency))) continue;
+    if (!process.env.npm_execpath) throw new Error(`Run npm ci in ${directory} before building.`);
+    run(process.execPath, [process.env.npm_execpath, "--prefix", directory, "ci"]);
   }
   run("dotnet", ["tool", "restore"]);
   run("dotnet", ["paket", "restore"]);

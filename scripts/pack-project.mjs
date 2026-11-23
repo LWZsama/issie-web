@@ -3,7 +3,7 @@ import { basename, extname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createProjectUrl } from "../static/project-link.mjs";
 
-const usage = "node scripts/pack-project.mjs [--base-url URL] [--brotli] PROJECT_DIRECTORY";
+const usage = "node scripts/pack-project.mjs [--base-url URL] PROJECT_DIRECTORY";
 const extensions = new Set([".dgm", ".dprj", ".ram", ".ldgm", ".v", ".sv", ".vh", ".txt"]);
 
 async function readProject(directory) {
@@ -36,7 +36,7 @@ try {
   } else {
     if (positionals.length !== 1) throw new Error(usage);
     const project = await readProject(resolve(positionals[0]));
-    console.log(await createProjectUrl(project, values["base-url"], values.brotli ? "br" : "gz"));
+    console.log(await createProjectUrl(project, values["base-url"]));
   }
 } catch (error) {
   console.error(error.message);
