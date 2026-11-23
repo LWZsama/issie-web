@@ -26,6 +26,9 @@ function staticFiles() {
   fs.cpSync(assets, path.join(output, "static"), { recursive: true });
   fs.writeFileSync(path.join(output, "static", "workspace.json"), JSON.stringify(files));
   fs.copyFileSync(path.join(root, "public/icon.ico"), path.join(output, "favicon.ico"));
+  const index = path.join(output, "index.html");
+  const head = '<title>Issie Web</title><link rel="icon" href="./favicon.ico">';
+  fs.writeFileSync(index, fs.readFileSync(index, "utf8").replace("</head>", head + "</head>"));
 }
 
 async function build() {
