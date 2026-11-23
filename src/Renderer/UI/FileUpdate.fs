@@ -143,9 +143,8 @@ let private newProject model dispatch =
                     Button.button [
                         Button.Size IsSmall
                         Button.OnClick (fun _ ->
-                            askForFolder "Where should the project folder go?" "Use this folder"
-                                (Some parent)
-                            |> Option.iter (Some >> SetPopupDialogText2 >> dispatch))
+                            WebFiles.folder "Where should the project folder go?" "Use this folder" (Some parent)
+                                dispatch <| Option.iter (Some >> SetPopupDialogText2 >> dispatch))
                     ] [str "Browse..."]
                 ]
                 br []
@@ -388,9 +387,8 @@ and private viewProjectBrowser (startFolder: string) model dispatch =
                     Button.button [
                         Button.Size IsSmall
                         Button.OnClick (fun _ ->
-                            askForFolder "Choose a project folder, or a folder of projects" "Use this folder"
-                                (Some folder)
-                            |> Option.iter (fun chosen ->
+                            WebFiles.folder "Choose a project folder, or a folder of projects" "Use this folder"
+                                (Some folder) dispatch <| Option.iter (fun chosen ->
                                 // whatever was chosen, honour the intent: open it if it can be
                                 // opened, otherwise carry on browsing from there
                                 match inspectProjectDirectory chosen with

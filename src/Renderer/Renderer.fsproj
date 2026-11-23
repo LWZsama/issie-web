@@ -166,6 +166,7 @@
     <Compile Include="UI\MemoryEditorView.fs" />
     <Compile Include="UI\MenuHelpers.fs" />
       <Compile Include="VerilogComponent\SheetCreator.fs" /> 
+    <Compile Include="..\..\web\WebFiles.fs" />
     <Compile Include="UI\MiscMenuView.fs" />
     <Compile Include="UI\TopMenuView.fs" />
     <Compile Include="UI\CustomCompPorts.fs" />

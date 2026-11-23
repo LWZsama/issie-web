@@ -878,7 +878,7 @@ let saveAsLibraryComponent (sheetName: string) (model: Model) dispatch =
 /// The folder is asked for rather than remembered: this is not somewhere Issie owns, and the last
 /// place a library went is not a good guess at the next one.
 let exportLibrary (library: ComponentLibraries.ComponentLibrary) dispatch =
-    match askForFolder $"Where should the {library.Name} library be copied to?" "Export here" None with
+    WebFiles.folder $"Where should the {library.Name} library be copied to?" "Export here" None dispatch <| function
     | None -> ()      // cancelled
     | Some destRoot ->
         match ComponentLibraries.exportLibraryTo destRoot library with
@@ -1034,7 +1034,7 @@ let importSheet model dispatch =
 
         dispatch <| (Sheet (SheetT.SetSpinner false))
 
-        match askForExistingSheetPaths model.UserData.LastUsedDirectory with
+        WebFiles.sheets model.UserData.LastUsedDirectory dispatch <| function
         | None -> () // User gave no path.
         | Some paths ->
             let sourceProjectDir = dirName paths[0]
