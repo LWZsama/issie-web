@@ -159,7 +159,7 @@ let private argAt (body: byte array) (offset: int) =
     if body.Length >= offset + 4 then int (BitConverter.ToUInt32(body, offset)) else 0
 
 /// Serve one connection until it closes or misbehaves.
-let private serve (ws: WebSocket) (ct: CancellationToken) =
+let serve (ws: WebSocket) (ct: CancellationToken) =
     task {
         // every chunk of every message lands here; nothing else is allocated per chunk
         let buffer = Array.zeroCreate 1024
