@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-async function browserCheck(desktopUrl, expectedDemos) {
+async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
   function check(value, message) { if (!value) throw new Error(message); }
   const delay = ms => new Promise(r => setTimeout(r, ms));
   const frame = document.querySelector("iframe");
@@ -21,9 +21,28 @@ async function browserCheck(desktopUrl, expectedDemos) {
     throw new Error("Timed out: " + fn + "\n" + app.document.body.innerText.slice(0, 500));
   }
   const control = label => Array.from(app.document.querySelectorAll("button,a")).find(el => el.innerText.trim() === label);
+  // A single visit must prepare even the simulator. Disable the asset server before opening any project.
+  frame.src = "./";
+  await until(() => app.issieDev?.state().ready &&
+    app.navigator.serviceWorker.controller && navigator.serviceWorker.controller);
+  check((await app.navigator.serviceWorker.ready).scope === new URL("./", location.href).href, "Wrong app scope");
+  check((await fetch("/offline", { method: "POST" })).ok, "Could not take the asset server offline");
+  frame.src = "about:blank";
+  await until(() => app.location.href === "about:blank");
+  await Promise.all(expectedFiles.map(async file => {
+    const response = await fetch(file, { cache: "no-store" });
+    check(response.ok, "Missing offline asset: " + file);
+    await response.arrayBuffer();
+  }));
   const { createProjectUrl } = await import("./static/project-link.mjs");
   frame.src = "./#demo=3&code=1234";
   await until(() => app.issieDev?.state().ready);
+  check(app.document.title === "Issie Web", "Wrong tab title");
+  const favicon = new Image();
+  favicon.src = app.document.querySelector('link[rel="icon"]').href;
+  await favicon.decode();
+  const manifest = await (await fetch(app.document.querySelector('link[rel="manifest"]').href)).json();
+  check(manifest.name === "Issie Web" && manifest.display === "standalone", "Wrong installed app metadata");
   check(!app.issieDev.state().project, "The legacy URL opened a project");
   control("Open demo project").click();
   await until(() => app.document.body.innerText.includes("Choose Demo Project"));
@@ -160,15 +179,23 @@ async function browserCheck(desktopUrl, expectedDemos) {
     const a = await exercise(nativeCall), b = await exercise(wasmCall);
     check(a.length === b.length && a.every((value, i) => value === b[i]), "Desktop and WASM waveform bytes differ");
   } finally { worker.terminate(); native.close(); }
-  return "Project creation and overwrite refusal, official assets, shared project, upstream menu, 12,001 desktop/WASM samples and expired history passed.";
+  return `Full offline build (${expectedFiles.length} files), tab identity, project operations, official assets, shared project, upstream menu, 12,001 desktop/WASM samples and expired history passed.`;
 }
 
 const directory = path.join(path.dirname(fileURLToPath(import.meta.url)), "build");
+const assembly = process.argv[2];
+if (!assembly) throw new Error("Pass the path to the upstream desktop issie-sidecar.dll.");
+const sitePath = "/issie-web/";
+const files = (await readdir(directory, { recursive: true, withFileTypes: true }))
+  .filter(entry => entry.isFile())
+  .map(entry => {
+    const relative = path.relative(directory, path.join(entry.parentPath, entry.name));
+    return relative.split(path.sep).map(encodeURIComponent).join("/");
+  })
+  .filter(file => file !== "sw.js");
 const desktopRoot = process.env.ISSIE_UPSTREAM_DIR || path.resolve(directory, "../..");
 const demos = (await readdir(path.join(desktopRoot, "static/demos"), { withFileTypes: true }))
   .filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
-const assembly = process.argv[2];
-if (!assembly) throw new Error("Pass the path to the upstream desktop issie-sidecar.dll.");
 const token = randomUUID();
 const sidecar = spawn("dotnet", [path.resolve(assembly)], { windowsHide: true, env: { ...process.env, ISSIE_SIDECAR_TOKEN: token } });
 const temporary = await realpath(tmpdir());
@@ -185,23 +212,30 @@ try {
     sidecar.once("error", reject); sidecar.once("exit", code => reject(Error("Sidecar exited: " + code)));
   });
   const outcome = Promise.withResolvers();
+  let offline = false;
   server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url, "http://localhost");
-      if (url.pathname === "/check") {
+      if (url.pathname === sitePath + "check") {
         const endpoint = `ws://127.0.0.1:${port}/?token=${token}`;
         res.setHeader("Content-Type", "text/html"); res.end(`<iframe style="width:1600px;height:950px"></iframe><script type="module">
           const send = value => fetch('/result', {method:'POST',body:JSON.stringify(value)});
-          (${browserCheck.toString()})(${JSON.stringify(endpoint)},${JSON.stringify(demos)}).then(ok => send({ok}), e => send({error:String(e.stack||e)}))</script>`);
+          (${browserCheck.toString()})(${JSON.stringify(endpoint)},${JSON.stringify(demos)},${JSON.stringify(files)}).then(ok => send({ok}), e => send({error:String(e.stack||e)}))</script>`);
+      } else if (url.pathname === "/offline" && req.method === "POST") {
+        offline = true; res.writeHead(204); res.end();
       } else if (url.pathname === "/result" && req.method === "POST") {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const answer = JSON.parse(Buffer.concat(chunks)); res.end();
         if (answer.error) outcome.reject(Error(answer.error)); else outcome.resolve(answer.ok);
       } else {
-        const file = path.resolve(directory, "." + decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname));
+        if (!url.pathname.startsWith(sitePath)) throw Error("Outside the app scope");
+        if (offline) { res.writeHead(503); res.end(); return; }
+        const file = path.resolve(directory, decodeURIComponent(url.pathname.slice(sitePath.length)) || "index.html");
         if (!file.startsWith(directory + path.sep)) throw Error("Invalid path");
         const type = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
+          ".webmanifest": "application/manifest+json", ".ico": "image/x-icon", ".png": "image/png",
           ".wasm": "application/wasm", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml" };
+        res.setHeader("Cache-Control", "no-store");
         const data = await readFile(file); res.setHeader("Content-Type", type[path.extname(file)] || "application/octet-stream"); res.end(data);
       }
     } catch { res.writeHead(404); res.end(); }
@@ -212,7 +246,7 @@ try {
     darwin: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   })[process.platform] || "google-chrome";
   chrome = spawn(browser, ["--headless=new", "--disable-gpu", "--no-first-run", "--disable-dev-shm-usage",
-    "--user-data-dir=" + profile, "--window-size=1660,1060", `http://127.0.0.1:${server.address().port}/check`],
+    "--user-data-dir=" + profile, "--window-size=1660,1060", `http://127.0.0.1:${server.address().port}${sitePath}check`],
     { windowsHide: true, stdio: "ignore" });
   chrome.once("error", outcome.reject);
   timeout = setTimeout(() => outcome.reject(Error("Browser check timed out")), 90000);

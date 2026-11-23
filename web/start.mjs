@@ -231,5 +231,8 @@ async function start() {
     if (event.target.closest?.("#Canvas")) document.getElementById("Canvas")?.focus({ preventScroll: true });
   }, true);
   await import("issie/renderer");
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch(error => report("Could not enable offline use. " + error.message));
+  }
 }
 start().catch(error => { document.getElementById("app").textContent = "Could not open Issie. " + error.message; });

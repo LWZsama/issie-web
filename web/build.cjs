@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { createHash } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const { createRequire } = require("node:module");
 
@@ -26,9 +27,29 @@ function staticFiles() {
   fs.cpSync(assets, path.join(output, "static"), { recursive: true });
   fs.writeFileSync(path.join(output, "static", "workspace.json"), JSON.stringify(files));
   fs.copyFileSync(path.join(root, "public/icon.ico"), path.join(output, "favicon.ico"));
+  for (const name of ["manifest.webmanifest", "icon-192.png"]) {
+    fs.copyFileSync(path.join(__dirname, name), path.join(output, name));
+  }
   const index = path.join(output, "index.html");
-  const head = '<title>Issie Web</title><link rel="icon" href="./favicon.ico">';
+  const head = '<title>Issie Web</title><link rel="icon" href="./favicon.ico">' +
+    '<link rel="apple-touch-icon" href="./static/icon.png"><link rel="manifest" href="./manifest.webmanifest">';
   fs.writeFileSync(index, fs.readFileSync(index, "utf8").replace("</head>", head + "</head>"));
+}
+
+function writeServiceWorker() {
+  const paths = fs.readdirSync(output, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => path.relative(output, path.join(entry.parentPath, entry.name)))
+    .filter(file => file !== "sw.js").sort();
+  const assets = paths.map(file => {
+    const url = file.split(path.sep).map(encodeURIComponent).join("/");
+    const hash = createHash("sha256").update(fs.readFileSync(path.join(output, file))).digest("base64");
+    return [url, "sha256-" + hash];
+  });
+  const list = JSON.stringify(assets);
+  const script = fs.readFileSync(path.join(__dirname, "service-worker.js"), "utf8");
+  const revision = createHash("sha256").update(list).update(script).digest("hex");
+  fs.writeFileSync(path.join(output, "sw.js"), `const revision = "${revision}";\nconst assets = ${list};\n${script}`);
 }
 
 async function build() {
@@ -70,6 +91,7 @@ async function build() {
   fs.cpSync(path.join(bundle, "_framework"), framework, { recursive: true });
   fs.copyFileSync(path.join(bundle, "main.mjs"), path.join(framework, "main.mjs"));
   staticFiles();
+  writeServiceWorker();
   console.log(`Built Issie Web ${fromRoot("./package.json").version} in ${output}`);
 }
 
