@@ -1,0 +1,112 @@
+name: Web
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Desktop release to check (defaults to the pinned tag)"
+        required: false
+  schedule:
+    - cron: '15 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ref.outputs.tag }}
+      pinned: ${{ steps.ref.outputs.pinned }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED: ${{ inputs.upstream_tag }}
+        run: |
+          pinned=v$(node -p "require('./package.json').version")
+          tag=${REQUESTED:-$pinned}
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            tag=$(gh api repos/tomcl/issie/releases/latest --jq .tag_name)
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: source
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build: [release, debug]
+    env:
+      ISSIE_WEB_FABLE_DEFINES: ${{ matrix.build == 'debug' && 'DEBUG' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: port
+          fetch-depth: ${{ needs.source.outputs.tag != needs.source.outputs.pinned && '0' || '1' }}
+          persist-credentials: false
+      - name: Try the port commits on the requested desktop release
+        if: needs.source.outputs.tag != needs.source.outputs.pinned
+        working-directory: port
+        env:
+          BASE: ${{ needs.source.outputs.pinned }}
+          TARGET: ${{ needs.source.outputs.tag }}
+        run: |
+          git fetch --no-tags https://github.com/tomcl/issie.git \
+            "refs/tags/$BASE:refs/issie/base" "refs/tags/$TARGET:refs/issie/target"
+          git merge-base --is-ancestor refs/issie/base HEAD
+          git -c user.name="Issie Web CI" -c user.email="ci@localhost" rebase --onto refs/issie/target refs/issie/base
+      - if: matrix.build == 'debug'
+        uses: actions/checkout@v5
+        with:
+          repository: tomcl/issie
+          ref: ${{ needs.source.outputs.tag }}
+          path: desktop
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-node@v5
+        with: { node-version: '24', cache: npm, cache-dependency-path: port/package-lock.json }
+      - run: dotnet workload install wasm-tools
+      - run: npm --prefix port ci --ignore-scripts
+      - run: npm --prefix port/web test
+      - run: npm --prefix port/web run build
+      - if: matrix.build == 'debug'
+        working-directory: desktop
+        run: |
+          dotnet tool restore
+          dotnet paket restore
+          dotnet build src/Sidecar/Issie.Sidecar.fsproj -c Release
+      - if: matrix.build == 'debug'
+        run: node port/web/smoke.mjs desktop/src/Sidecar/bin/Release/net10.0/issie-sidecar.dll
+        env:
+          ISSIE_UPSTREAM_DIR: ${{ github.workspace }}/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ matrix.build }}
+          path: port/web/build
+
+  deploy:
+    needs: [source, build]
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.source.outputs.tag == needs.source.outputs.pinned
+    runs-on: ubuntu-latest
+    permissions: { pages: write, id-token: write }
+    concurrency: { group: pages, cancel-in-progress: false }
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: web-release, path: site }
+      - uses: actions/download-artifact@v4
+        with: { name: web-debug, path: site/debug }
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: pages
+        uses: actions/deploy-pages@v4
