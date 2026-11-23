@@ -90,10 +90,27 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
   await contents.write(assets["demos/1fulladder/halfadd.dgm"]); await contents.close();
   const prior = app.document; frame.src = "./?recover";
   await until(() => app.document !== prior && app.issieDev?.state().ready);
+  // Hold the real worker's ready signal until the first simulation connects.
+  const NativeWorker = app.Worker;
+  const workerSheets = [];
+  let releaseReady;
+  app.Worker = class extends NativeWorker {
+    constructor(url, options) {
+      super(url, options);
+      if (options?.name !== "issie-simulation") return;
+      workerSheets.push(app.issieDev.state().openSheet);
+      this.addEventListener("message", event => {
+        if (!event.data.issieWasmReady) return;
+        event.stopImmediatePropagation();
+        releaseReady = () => this.dispatchEvent(new app.MessageEvent("message", { data: event.data }));
+      }, { once: true });
+    }
+  };
   app.showDirectoryPicker = async () => lost;
   control("Open project").click(); (await until(() => control("Browse..."))).click();
   (await until(() => control("Add it and open"))).click();
   await until(() => app.issieDev.state().openSheet === "halfadd");
+  await until(() => releaseReady);
   await until(() => lost.getFileHandle("Markerless.dprj").catch(e => { if (e.name !== "NotFoundError") throw e; }));
 
   const prefix = "demos/1fulladder/";
@@ -126,9 +143,18 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
     if (message.frame && new Uint8Array(message.frame)[0] === 4) design.push(message.frame.slice(0));
     return post.call(this, message, transfer);
   };
+  const endpoint = app.issieBridge.sidecar.port;
+  app.issieBridge.sidecar.port = () => {
+    app.issieBridge.sidecar.port = endpoint;
+    setTimeout(releaseReady, 0);
+    return endpoint();
+  };
   app.issieDev.send("sidecarProbe", "12");
   await until(() => JSON.stringify(app.issieLog.lines()).includes("IDENTICAL step data"));
   app.Worker.prototype.postMessage = post;
+  check(workerSheets.length === 1 && workerSheets[0] === "halfadd",
+    "Expected one simulation worker after opening halfadd, got " + JSON.stringify(workerSheets));
+  app.Worker = NativeWorker;
   const decoder = new TextDecoder();
   const sheets = design.map(f => {
     const view = new DataView(f), offset = 20 + view.getUint32(16, true);
@@ -179,7 +205,7 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles) {
     const a = await exercise(nativeCall), b = await exercise(wasmCall);
     check(a.length === b.length && a.every((value, i) => value === b[i]), "Desktop and WASM waveform bytes differ");
   } finally { worker.terminate(); native.close(); }
-  return `Full offline build (${expectedFiles.length} files), tab identity, project operations, official assets, shared project, upstream menu, 12,001 desktop/WASM samples and expired history passed.`;
+  return `Full offline build (${expectedFiles.length} files), tab identity, project operations, official assets, shared project, upstream menu, worker prewarm and reuse, 12,001 desktop/WASM samples and expired history passed.`;
 }
 
 const directory = path.join(path.dirname(fileURLToPath(import.meta.url)), "build");

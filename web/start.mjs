@@ -1,5 +1,6 @@
 import { Workspace, normal } from "./workspace.mjs";
 import { contextMenu } from "./menu.mjs";
+import { prewarmSimulationWorker } from "./socket.mjs";
 import { decodeProjectFragment } from "../static/project-link.mjs";
 
 const errors = [];
@@ -111,12 +112,21 @@ function download(path, text) {
 }
 
 let current, offeredRoot, dirty = false, exporting;
+let warmupRequested = false;
 const host = {
   pickFolder, pickSheets,
   projectChanged(path, changed) {
     path = path ? normal(path) : null;
     if (current !== path) workspace.release(current);
     current = path; dirty = changed;
+    if (current && !warmupRequested) {
+      warmupRequested = true;
+      // Elmish batches the canvas render into a frame. Give it a paint before starting .NET.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (current) prewarmSimulationWorker();
+        else warmupRequested = false;
+      }));
+    }
   },
   saveCopy(root) {
     root = normal(root);

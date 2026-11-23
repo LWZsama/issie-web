@@ -5,24 +5,37 @@ let generation = 0;
 
 function runtime() {
   if (worker) return ready;
-  worker = new Worker(new URL("wasm/main.mjs", document.baseURI), { type: "module", name: "issie-simulation" });
+  const instance = new Worker(new URL("wasm/main.mjs", document.baseURI), { type: "module", name: "issie-simulation" });
+  worker = instance;
   ready = new Promise((resolve, reject) => {
     function failed(message) {
-      worker.terminate();
+      if (worker !== instance) return;
+      instance.terminate();
       worker = null;
       reject(new Error(message));
       const socket = active;
       if (socket) { socket.onerror?.({ message }); socket.close(); }
     }
-    worker.onerror = event => failed(event.message || "Simulation worker failed.");
-    worker.onmessageerror = () => failed("Invalid simulation worker message.");
-    worker.onmessage = ({ data }) => {
+    instance.onerror = event => {
+      if (!active) event.preventDefault(); // A speculative failure should not interrupt editing.
+      failed(event.message || "Simulation worker failed.");
+    };
+    instance.onmessageerror = () => failed("Invalid simulation worker message.");
+    instance.onmessage = ({ data }) => {
       if (data.issieWasmReady) resolve();
       else if (data.issieWasmError) failed(data.issieWasmError);
       else if (active && data.connection === active.connection) active.onmessage?.({ data: data.frame });
     };
   });
   return ready;
+}
+
+export async function prewarmSimulationWorker() {
+  try {
+    await runtime();
+  } catch {
+    // Opening a project still works. A simulation request retries a failed startup.
+  }
 }
 
 export class HostSocket {
