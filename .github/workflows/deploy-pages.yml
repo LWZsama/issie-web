@@ -93,9 +93,20 @@ jobs:
           name: web-${{ matrix.build }}
           path: port/web/build
 
-  deploy:
+  assemble:
     needs: [source, build]
     if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.source.outputs.tag == needs.source.outputs.pinned
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: web-release, path: site }
+      - uses: actions/download-artifact@v4
+        with: { name: web-debug, path: site/debug }
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+
+  deploy:
+    needs: assemble
     runs-on: ubuntu-latest
     permissions: { pages: write, id-token: write }
     concurrency: { group: pages, cancel-in-progress: false }
@@ -103,12 +114,6 @@ jobs:
       name: github-pages
       url: ${{ steps.pages.outputs.page_url }}
     steps:
-      - uses: actions/download-artifact@v4
-        with: { name: web-release, path: site }
-      - uses: actions/download-artifact@v4
-        with: { name: web-debug, path: site/debug }
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: site }
       - id: pages
         uses: actions/deploy-pages@v4
