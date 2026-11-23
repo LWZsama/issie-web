@@ -211,6 +211,7 @@
     <Compile Include="UI\DevHarness.fs" />
     <Compile Include="Playground.fs" />
 
+    <Compile Include="..\..\web\WebHost.fs" />
     <Compile Include="Renderer.fs" />
   </ItemGroup>
   

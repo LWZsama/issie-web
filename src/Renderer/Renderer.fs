@@ -687,4 +687,7 @@ Program.mkProgram init update view'
     recordThrown $"elmish ({context})" (box e))
 |> Program.withReactBatched "app"
 |> Program.withSubscription appSubscriptions
+#if ISSIE_WEB
+|> WebHost.attach
+#endif
 |> Program.run
