@@ -297,6 +297,27 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedL
   chooserRow.closest("a").querySelector(".recentForget").click();
   await until(() => !recentRow(chooser));
   check(!chooserStatus.isConnected && requests.length === 5, "Forgetting the project left its hint or retried access");
+
+  // Forget removed the row, but IndexedDB still holds the old directory handles.
+  // Chrome can reject those as arguments while resolve() on an old handle never returns.
+  const stale = dir => dir.name === chosen.name || dir.name === lost.name;
+  const sameEntry = lost.isSameEntry.bind(lost), resolve = app.FileSystemDirectoryHandle.prototype.resolve;
+  const stuck = Promise.withResolvers();
+  lost.isSameEntry = dir => stale(dir) ? Promise.reject(new DOMException("Stale handle", "AbortError")) : sameEntry(dir);
+  app.FileSystemDirectoryHandle.prototype.resolve = function (dir) {
+    return stale(this) ? stuck.promise : resolve.call(this, dir);
+  };
+  app.showDirectoryPicker = async () => lost;
+  try {
+    control("Browse...").click();
+    await until(() => app.issieDev.state().openSheet === "halfadd");
+    check(app.issieDev.state().project !== recentPath && requests.length === 5,
+      "Browse reused an unverifiable project path or asked for the old permission");
+  } finally {
+    stuck.resolve(null);
+    delete lost.isSameEntry;
+    app.FileSystemDirectoryHandle.prototype.resolve = resolve;
+  }
   return `Full offline build (${expectedFiles.length} files), lazy recent projects, tab identity, project operations, official assets, shared project, upstream menu, worker prewarm and reuse, 12,001 desktop/WASM samples and expired history passed.`;
 }
 

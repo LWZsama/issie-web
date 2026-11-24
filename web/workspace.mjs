@@ -64,6 +64,29 @@ async function eraseDisk(handle, relative) {
   catch (error) { if (error.name !== "NotFoundError") throw error; }
 }
 
+async function pathInMount(handle, mount) {
+  try {
+    if (mount.root.startsWith("/shared/")) return null; // a saved link still has a temporary editor path
+    // Ask the newly picked directory first. Chrome can reject a stale handle here
+    // while a call made on the stale handle itself never returns.
+    if (handle.kind === "directory" && await handle.isSameEntry?.(mount.handle)) return mount.root;
+    const parts = await mount.handle.resolve(handle);
+    return parts && [mount.root, ...parts].join("/");
+  } catch { return null; }
+}
+
+async function savedDirectoryPath(handle, saved) {
+  if (!saved.length) return null;
+  // Reusing a virtual path is optional. Give all saved matches one shared budget;
+  // the directory the user just chose can be opened with its own handle regardless.
+  let timer;
+  const deadline = new Promise(resolve => { timer = setTimeout(resolve, 250, null); });
+  try {
+    const paths = await Promise.all(saved.map(mount => Promise.race([pathInMount(handle, mount), deadline])));
+    return paths.find(Boolean);
+  } finally { clearTimeout(timer); }
+}
+
 export class Workspace {
   entries = new Map([["/", directory()]]);
   mounts = new Map();
@@ -261,10 +284,8 @@ export class Workspace {
 
   async resolve(handle, mounts = this.mounts.values()) {
     for (const mount of mounts) {
-      if (mount.root.startsWith("/shared/")) continue; // a saved link still has a temporary editor path
-      // An unavailable old handle cannot identify the file or directory the user just picked.
-      const parts = await mount.handle.resolve(handle).catch(() => null);
-      if (parts) return [mount.root, ...parts].join("/");
+      const path = await pathInMount(handle, mount);
+      if (path) return path;
     }
     return null;
   }
@@ -278,7 +299,7 @@ export class Workspace {
       return known;
     }
     // Re-selecting a saved folder (or its child) should keep its path in Recents.
-    const path = await this.resolve(handle, saved);
+    const path = await savedDirectoryPath(handle, saved);
     return this.mount(path || child(child("/local", crypto.randomUUID()), handle.name), handle);
   }
 

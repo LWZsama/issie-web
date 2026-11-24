@@ -85,6 +85,33 @@ test("a folder created outside the app after mounting cannot be overwritten by N
   assert.equal(await (await existing.getFile()).text(), "original");
 });
 
+test("a stalled saved folder cannot block Browse or claim a new folder with the same name", { timeout: 3000 }, async () => {
+  const ws = new Workspace(assert.fail);
+  const picked = folder("state_machine", { "main.dgm": "picked" });
+  const late = Promise.withResolvers();
+  const stale = { root: "/local/old/state_machine", handle: { name: picked.name, resolve: () => late.promise } };
+  picked.isSameEntry = async () => false;
+  const root = await ws.attach(picked, [stale]);
+  assert.notEqual(root, stale.root);
+  assert.equal(ws.owner(root).handle, picked);
+  assert.equal(ws.read(root + "/main.dgm"), "picked");
+  late.resolve([]);
+  ws.write(root + "/main.dgm", "saved");
+  await ws.flush(ws.owner(root));
+  assert.equal(await (await (await picked.getFileHandle("main.dgm")).getFile()).text(), "saved");
+  assert.equal(ws.owner(stale.root), undefined);
+});
+
+test("Browse still recognizes a saved parent when an unrelated handle is unresponsive", { timeout: 3000 }, async () => {
+  const ws = new Workspace(assert.fail), picked = folder("state_machine");
+  const stalled = { root: "/local/old/unrelated", handle: {} };
+  const parent = { root: "/local/id/projects", handle: { resolve: async () => [picked.name] } };
+  picked.isSameEntry = handle => handle === stalled.handle ? new Promise(() => {}) : Promise.resolve(false);
+  const root = await ws.attach(picked, [stalled, parent]);
+  assert.equal(root, parent.root + "/state_machine");
+  assert.equal(ws.owner(root).handle, picked);
+});
+
 test("browsing the parent of a lazily opened recent preserves the project's pending edits", async () => {
   const ws = new Workspace(assert.fail), disk = folder("projects", { state_machine: { "main.dgm": "on disk" } });
   const root = "/local/id/projects", project = root + "/state_machine";
