@@ -233,8 +233,14 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedL
       return opening;
     };
   }
-  const recentRow = () => Array.from(app.document.querySelectorAll(".recentItem div[title]"))
+  const recentRow = (root = app.document) => Array.from(root.querySelectorAll(".recentItem div[title]"))
     .find(row => row.title.replaceAll("\\", "/") === recentPath.replaceAll("\\", "/"));
+  const rowStatus = row => row.closest("li").querySelector('[role="status"]');
+  function checkHelp(status, message) {
+    check(status?.innerText === message + "\nClick × to remove this entry from the list." &&
+      status.querySelector("strong")?.textContent === "Open project → Browse...",
+      "Unexpected recent project guidance: " + status?.innerText);
+  }
   await restart(link.hash);
   await until(() => app.issieDev.state().openSheet === "fulladd");
   await restart("?menu");
@@ -242,13 +248,19 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedL
   check(control("Open demo project").compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
     "The saved project was missing below Open demo project");
   check(!requests.length && !app.issieBridge.fs.exists(recentPath), "Startup accessed a saved local folder");
+  const clickedAt = performance.now();
   row.click();
+  const status = rowStatus(row);
+  check(status?.innerText === "Opening…", "Unexpected feedback on click: " + status?.innerText);
   await until(() => requests.length === 1);
+  await until(() => status.querySelector("small"));
+  check(performance.now() - clickedAt >= 3000, "The folder access hint appeared before three seconds");
+  checkHelp(status, "Still waiting for folder access. If you don’t see a permission prompt, choose Open project → Browse... and select this folder again.");
   app.location.hash = link.hash;
   await until(() => app.issieDev.state().openSheet === "fulladd");
   held.resolve("granted");
   await opening;
-  check(!app.issieBridge.fs.exists(recentPath), "A superseded recent selection restored a folder");
+  check(!status.isConnected && !app.issieBridge.fs.exists(recentPath), "A superseded recent selection was still active");
 
   await restart("?reopen");
   const covered = Promise.withResolvers();
@@ -261,14 +273,30 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedL
   check(!app.issieBridge.fs.exists(recentPath), "A late grant interrupted the project chooser");
   control("Cancel").click();
   permission = Promise.resolve("denied");
-  (await until(recentRow)).click();
-  await until(() => app.document.body.innerText.includes("Use Open project > Browse"));
+  const retryRow = await until(recentRow);
+  retryRow.click(); await opening;
+  const failed = rowStatus(retryRow);
+  const failureText = "Couldn’t reopen this project. Choose Open project → Browse... and select the project folder again.";
+  checkHelp(failed, failureText);
   permission = Promise.resolve("granted");
-  (await until(recentRow)).click();
+  retryRow.click();
+  check(!failed.isConnected && rowStatus(retryRow)?.innerText === "Opening…", "Retry kept the previous failure");
   await until(() => app.issieDev.state().openSheet === "halfadd");
   check(app.issieDev.state().project === recentPath && requests.length === 4 &&
     requests.every(([name, mode]) => name === lost.name && mode === "readwrite"),
     "Reopening a recent project used the wrong folder or permission");
+
+  await restart("?forget");
+  control("Open project").click();
+  const chooser = (await until(() => control("Browse..."))).closest(".modal");
+  const chooserRow = await until(() => recentRow(chooser));
+  permission = Promise.resolve("denied");
+  chooserRow.click(); await opening;
+  const chooserStatus = rowStatus(chooserRow);
+  checkHelp(chooserStatus, failureText);
+  chooserRow.closest("a").querySelector(".recentForget").click();
+  await until(() => !recentRow(chooser));
+  check(!chooserStatus.isConnected && requests.length === 5, "Forgetting the project left its hint or retried access");
   return `Full offline build (${expectedFiles.length} files), lazy recent projects, tab identity, project operations, official assets, shared project, upstream menu, worker prewarm and reuse, 12,001 desktop/WASM samples and expired history passed.`;
 }
 
@@ -311,7 +339,7 @@ try {
       const url = new URL(req.url, "http://localhost");
       if (url.pathname === sitePath + "check") {
         const endpoint = `ws://127.0.0.1:${port}/?token=${token}`;
-        res.setHeader("Content-Type", "text/html"); res.end(`<iframe style="width:1600px;height:950px"></iframe><script type="module">
+        res.setHeader("Content-Type", "text/html; charset=utf-8"); res.end(`<iframe style="width:1600px;height:950px"></iframe><script type="module">
           const send = value => fetch('/result', {method:'POST',body:JSON.stringify(value)});
           (${browserCheck.toString()})(${[endpoint, demos, files, oversizedLink].map(value => JSON.stringify(value)).join(",")}).then(ok => send({ok}), e => send({error:String(e.stack||e)}))</script>`);
       } else if (url.pathname === sitePath + "check-folders") {

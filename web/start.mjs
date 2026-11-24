@@ -55,40 +55,68 @@ async function savedDirectory(path) {
   }
 }
 
+function showRecentHelp(status, beforeBrowse, afterBrowse) {
+  const browse = document.createElement("strong");
+  browse.textContent = "Open project → Browse...";
+  const hint = document.createElement("small");
+  hint.className = "help";
+  hint.textContent = "Click × to remove this entry from the list.";
+  status.replaceChildren(beforeBrowse, browse, afterBrowse, hint);
+}
+
 async function openRecent(path, item, open) {
   const target = normal(path);
   if (!target.startsWith("/local/")) { open(path); return; }
 
+  const status = document.createElement("div");
+  status.className = "is-size-6 px-3 pb-2";
+  status.setAttribute("role", "status");
+  item.after(status);
+  const opening = "Opening…";
+  status.textContent = opening;
+
   // A later click can open another menu over the still-connected startup row.
   const selection = new AbortController();
-  const cancel = () => selection.abort();
+  let permissionTimer;
+  const cancel = () => {
+    clearTimeout(permissionTimer);
+    status.remove();
+    selection.abort();
+  };
   window.addEventListener("click", cancel, { capture: true, signal: selection.signal });
   window.addEventListener("hashchange", cancel, { signal: selection.signal });
   const stillSelected = () => !selection.signal.aborted && item.isConnected;
   try {
     const mounted = workspace.owner(target);
     const saved = mounted || await savedDirectory(target);
-    if (!stillSelected()) return;
-    if (!saved || await saved.handle.requestPermission({ mode: "readwrite" }) !== "granted") {
-      throw new Error("Folder access is unavailable.");
-    }
-    if (!stillSelected()) return;
+    if (!stillSelected()) return cancel();
+    if (!saved) throw new Error("Saved folder not found.");
+    permissionTimer = setTimeout(() => {
+      if (stillSelected()) showRecentHelp(status,
+        "Still waiting for folder access. If you don’t see a permission prompt, choose ", " and select this folder again.");
+    }, 3000);
+    const permission = await saved.handle.requestPermission({ mode: "readwrite" });
+    clearTimeout(permissionTimer);
+    if (!stillSelected()) return cancel();
+    if (permission !== "granted") throw new Error("Folder access is unavailable.");
+    status.textContent = opening;
     if (!mounted) {
       let dir = saved.handle;
       for (const part of target.slice(saved.root.length).split("/").filter(Boolean)) {
         dir = await dir.getDirectoryHandle(part);
       }
-      if (!stillSelected()) return;
+      if (!stillSelected()) return cancel();
       await workspace.mount(target, dir);
     }
     if (stillSelected()) open(path);
-  } catch (error) {
-    if (stillSelected() && error.name !== "AbortError") {
-      report(`Could not open ${path}. ${error.message} Use Open project > Browse... to select the folder again.`);
+  } catch {
+    clearTimeout(permissionTimer);
+    if (stillSelected()) {
+      showRecentHelp(status, "Couldn’t reopen this project. Choose ", " and select the project folder again.");
+      return; // Keep the guidance until the next selection.
     }
-  } finally {
-    cancel();
   }
+  cancel();
 }
 
 async function pickFolder(start) {
