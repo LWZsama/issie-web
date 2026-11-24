@@ -245,25 +245,31 @@ export class Workspace {
     let dir = handle;
     for (const part of scope.slice(root.length).split("/").filter(Boolean)) dir = await dir.getDirectoryHandle(part);
     await visit(scope, dir);
-    if (previous && previous.revision !== revision) return this.mount(root, handle, scope, reuseUnchanged);
-    if (!this.entries.has(parent(root))) this.entries.set(parent(root), directory());
-    for (const path of this.entries.keys()) if (within(path, scope)) this.entries.delete(path);
-    for (const [path, entry] of snapshot) this.entries.set(path, entry);
+    if (this.mounts.get(root) !== previous || previous?.revision !== revision) {
+      return this.mount(root, handle, scope, reuseUnchanged);
+    }
+    // A recent project may already be mounted, with edits waiting to reach disk, when Browse opens its parent.
+    const children = Array.from(this.mounts.keys()).filter(other => other !== root && within(other, root));
+    const inChildMount = path => children.some(other => within(path, other));
+    for (let dir = parent(root); !this.entries.has(dir); dir = parent(dir)) this.entries.set(dir, directory());
+    for (const path of this.entries.keys()) if (within(path, scope) && !inChildMount(path)) this.entries.delete(path);
+    for (const [path, entry] of snapshot) if (!inChildMount(path)) this.entries.set(path, entry);
     const mount = previous || { root, handle, jobs: [], revision: 0 };
     mount.scannedAt = Date.now(); mount.scanError = null; this.mounts.set(root, mount);
     return root;
   }
 
-  async resolve(handle) {
-    for (const mount of this.mounts.values()) {
+  async resolve(handle, mounts = this.mounts.values()) {
+    for (const mount of mounts) {
       if (mount.root.startsWith("/shared/")) continue; // a saved link still has a temporary editor path
-      const parts = await mount.handle.resolve(handle);
+      // An unavailable old handle cannot identify the file or directory the user just picked.
+      const parts = await mount.handle.resolve(handle).catch(() => null);
       if (parts) return [mount.root, ...parts].join("/");
     }
     return null;
   }
 
-  async attach(handle) {
+  async attach(handle, saved = []) {
     const known = await this.resolve(handle);
     if (known) {
       // Refresh the mounted tree when the user explicitly picks its folder again.
@@ -271,9 +277,9 @@ export class Workspace {
       await this.mount(mount.root, mount.handle);
       return known;
     }
-    const group = child("/local", crypto.randomUUID());
-    this.entries.set(group, directory());
-    return this.mount(child(group, handle.name), handle);
+    // Re-selecting a saved folder (or its child) should keep its path in Recents.
+    const path = await this.resolve(handle, saved);
+    return this.mount(path || child(child("/local", crypto.randomUUID()), handle.name), handle);
   }
 
   async exportCopy(root, handle) {

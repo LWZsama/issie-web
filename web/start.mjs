@@ -24,43 +24,84 @@ function pickerOptions(start) {
   return start && normal(start).startsWith("/local/") ? { startIn: workspace.owner(start)?.handle } : {};
 }
 
-let savedMounts;
-async function mountDatabase() {
+let database;
+async function savedFolderRequest(mode, operation) {
   if (!globalThis.indexedDB) return;
+  if (!database) {
+    database = new Promise((resolve, reject) => {
+      const request = indexedDB.open("issie-web-directory-handles", 1);
+      request.onupgradeneeded = () => request.result.createObjectStore("folders");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    }).catch(error => {
+      database = undefined;
+      throw error;
+    });
+  }
+  const db = await database;
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("issie-web-directory-handles", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("folders");
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    const tx = db.transaction("folders", mode);
+    const request = operation(tx.objectStore("folders"));
+    tx.oncomplete = () => resolve(request.result);
+    tx.onabort = () => reject(tx.error || new Error("Saved folder transaction aborted."));
   });
 }
 
-async function restoreMounts() {
-  // Browsers can require fresh permission after a restart. Browse will request it again.
+async function savedDirectory(path) {
+  // New projects can live under the directory originally chosen with Browse.
+  for (let root = path; root.startsWith("/local/"); root = root.slice(0, root.lastIndexOf("/"))) {
+    const saved = await savedFolderRequest("readonly", store => store.get(root));
+    if (saved) return saved;
+  }
+}
+
+async function openRecent(path, item, open) {
+  const target = normal(path);
+  if (!target.startsWith("/local/")) { open(path); return; }
+
+  // A later click can open another menu over the still-connected startup row.
+  const selection = new AbortController();
+  const cancel = () => selection.abort();
+  window.addEventListener("click", cancel, { capture: true, signal: selection.signal });
+  window.addEventListener("hashchange", cancel, { signal: selection.signal });
+  const stillSelected = () => !selection.signal.aborted && item.isConnected;
   try {
-    savedMounts = await mountDatabase();
-    if (!savedMounts) return;
-    const entries = await new Promise((resolve, reject) => {
-      const req = savedMounts.transaction("folders").objectStore("folders").getAll();
-      req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
-    });
-    for (const { root, handle } of entries) {
-      try {
-        if (await handle.queryPermission({ mode: "readwrite" }) === "granted") await workspace.mount(root, handle);
-      } catch (error) { report(`Could not restore ${root}. ${error.message}`); }
+    const mounted = workspace.owner(target);
+    const saved = mounted || await savedDirectory(target);
+    if (!stillSelected()) return;
+    if (!saved || await saved.handle.requestPermission({ mode: "readwrite" }) !== "granted") {
+      throw new Error("Folder access is unavailable.");
     }
-  } catch (error) { report("Could not restore a local folder. " + error.message); }
+    if (!stillSelected()) return;
+    if (!mounted) {
+      let dir = saved.handle;
+      for (const part of target.slice(saved.root.length).split("/").filter(Boolean)) {
+        dir = await dir.getDirectoryHandle(part);
+      }
+      if (!stillSelected()) return;
+      await workspace.mount(target, dir);
+    }
+    if (stillSelected()) open(path);
+  } catch (error) {
+    if (stillSelected() && error.name !== "AbortError") {
+      report(`Could not open ${path}. ${error.message} Use Open project > Browse... to select the folder again.`);
+    }
+  } finally {
+    cancel();
+  }
 }
 
 async function pickFolder(start) {
   try {
     if (window.showDirectoryPicker) {
       const handle = await window.showDirectoryPicker({ mode: "readwrite", ...pickerOptions(start) });
-      const root = await workspace.attach(handle);
+      const folders = await savedFolderRequest("readonly", store => store.getAll())
+        .catch(error => report("Could not read saved folders. " + error.message));
+      const root = await workspace.attach(handle, folders);
       const mount = workspace.owner(root);
-      if (savedMounts && mount.root.startsWith("/local/")) {
-        savedMounts.transaction("folders", "readwrite").objectStore("folders")
-          .put({ root: mount.root, handle: mount.handle }, mount.root);
+      if (mount.root.startsWith("/local/")) {
+        await savedFolderRequest("readwrite", store => store.put({ root: mount.root, handle: mount.handle }, mount.root))
+          .catch(error => report("Could not remember this folder. " + error.message));
       }
       return root;
     }
@@ -113,7 +154,7 @@ function download(path, text) {
 let current, offeredRoot, dirty = false, exporting;
 let warmupRequested = false;
 const host = {
-  pickFolder, pickSheets,
+  pickFolder, pickSheets, openRecent,
   projectChanged(path, changed) {
     path = path ? normal(path) : null;
     if (current !== path) workspace.release(current);
@@ -232,7 +273,6 @@ async function start() {
       await workspace.mount("/" + name, await disk.getDirectoryHandle(name, { create: true }));
     }
   } catch { report("Persistent browser storage is unavailable. Projects in this tab are temporary."); }
-  await restoreMounts();
   window.issieWeb = host;
   window.issieBridge = bridge();
   window.addEventListener("beforeunload", event => {

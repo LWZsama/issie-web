@@ -1363,7 +1363,13 @@ let forgetRecentProject (path: string) (model: Model) dispatch =
 let recentProjectItem (path: string) (label: ReactElement) (openIt: string -> unit) model dispatch =
     Menu.Item.li
         [ Menu.Item.IsActive false
+#if ISSIE_WEB
+          Menu.Item.Props [ Key path ]
+          Menu.Item.OnClick (fun ev ->
+              Fable.Core.JsInterop.emitJsExpr (path, ev.currentTarget, openIt) "window.issieWeb.openRecent($0,$1,$2)") ]
+#else
           Menu.Item.OnClick (fun _ -> openIt path) ]
+#endif
         [ div [Class "recentItem"] [
             // both overflow axes hidden: hiding only one makes CSS force the other to auto, which
             // puts a scrollbar on every row

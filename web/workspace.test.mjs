@@ -85,6 +85,25 @@ test("a folder created outside the app after mounting cannot be overwritten by N
   assert.equal(await (await existing.getFile()).text(), "original");
 });
 
+test("browsing the parent of a lazily opened recent preserves the project's pending edits", async () => {
+  const ws = new Workspace(assert.fail), disk = folder("projects", { state_machine: { "main.dgm": "on disk" } });
+  const root = "/local/id/projects", project = root + "/state_machine";
+  const handle = await disk.getDirectoryHandle("state_machine");
+  const file = await handle.getFileHandle("main.dgm"), writer = await file.createWritable();
+  const pending = Promise.withResolvers();
+  file.createWritable = () => pending.promise;
+  await ws.mount(project, handle);
+  ws.write(project + "/main.dgm", "edited");
+  try {
+    await ws.mount(root, disk);
+    assert.equal(ws.read(project + "/main.dgm"), "edited");
+  } finally {
+    pending.resolve(writer);
+    await ws.flush(ws.owner(project));
+  }
+  assert.equal(await (await file.getFile()).text(), "edited");
+});
+
 test("a shared link is isolated until saved, and an occupied destination is refused", async () => {
   const ws = new Workspace(assert.fail);
   const root = ws.workingCopy({ name: "CPU", files: { "main.dgm": "diagram", "rtl/code.ram": "0x20 0xc0fb" } });

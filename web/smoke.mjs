@@ -114,6 +114,7 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedL
   control("Open project").click(); (await until(() => control("Browse..."))).click();
   (await until(() => control("Add it and open"))).click();
   await until(() => app.issieDev.state().openSheet === "halfadd");
+  const recentPath = app.issieDev.state().project;
   await until(() => releaseReady);
   await until(() => lost.getFileHandle("Markerless.dprj").catch(e => { if (e.name !== "NotFoundError") throw e; }));
 
@@ -211,7 +212,64 @@ async function browserCheck(desktopUrl, expectedDemos, expectedFiles, oversizedL
     const a = await exercise(nativeCall), b = await exercise(wasmCall);
     check(a.length === b.length && a.every((value, i) => value === b[i]), "Desktop and WASM waveform bytes differ");
   } finally { worker.terminate(); native.close(); }
-  return `Full offline build (${expectedFiles.length} files), tab identity, project operations, official assets, shared project, upstream menu, worker prewarm and reuse, 12,001 desktop/WASM samples and expired history passed.`;
+
+  // Install the permission probe before the entry script, including on a cold #project= navigation.
+  const requests = [];
+  const held = Promise.withResolvers();
+  let permission = held.promise;
+  let opening;
+  window.observeDirectoryAccess = tab => {
+    function access({ mode }) { requests.push([this.name, mode]); return permission; }
+    tab.FileSystemHandle.prototype.queryPermission = access;
+    tab.FileSystemHandle.prototype.requestPermission = access;
+  };
+  async function restart(suffix) {
+    const previous = app.document;
+    frame.src = "./check-folders" + suffix;
+    await until(() => app.document !== previous && app.issieDev?.state().ready);
+    const openRecent = app.issieWeb.openRecent;
+    app.issieWeb.openRecent = (...args) => {
+      opening = openRecent(...args);
+      return opening;
+    };
+  }
+  const recentRow = () => Array.from(app.document.querySelectorAll(".recentItem div[title]"))
+    .find(row => row.title.replaceAll("\\", "/") === recentPath.replaceAll("\\", "/"));
+  await restart(link.hash);
+  await until(() => app.issieDev.state().openSheet === "fulladd");
+  await restart("?menu");
+  const row = await until(recentRow);
+  check(control("Open demo project").compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
+    "The saved project was missing below Open demo project");
+  check(!requests.length && !app.issieBridge.fs.exists(recentPath), "Startup accessed a saved local folder");
+  row.click();
+  await until(() => requests.length === 1);
+  app.location.hash = link.hash;
+  await until(() => app.issieDev.state().openSheet === "fulladd");
+  held.resolve("granted");
+  await opening;
+  check(!app.issieBridge.fs.exists(recentPath), "A superseded recent selection restored a folder");
+
+  await restart("?reopen");
+  const covered = Promise.withResolvers();
+  permission = covered.promise;
+  (await until(recentRow)).click();
+  await until(() => requests.length === 2);
+  control("Open project").click(); await until(() => control("Browse..."));
+  covered.resolve("granted");
+  await opening;
+  check(!app.issieBridge.fs.exists(recentPath), "A late grant interrupted the project chooser");
+  control("Cancel").click();
+  permission = Promise.resolve("denied");
+  (await until(recentRow)).click();
+  await until(() => app.document.body.innerText.includes("Use Open project > Browse"));
+  permission = Promise.resolve("granted");
+  (await until(recentRow)).click();
+  await until(() => app.issieDev.state().openSheet === "halfadd");
+  check(app.issieDev.state().project === recentPath && requests.length === 4 &&
+    requests.every(([name, mode]) => name === lost.name && mode === "readwrite"),
+    "Reopening a recent project used the wrong folder or permission");
+  return `Full offline build (${expectedFiles.length} files), lazy recent projects, tab identity, project operations, official assets, shared project, upstream menu, worker prewarm and reuse, 12,001 desktop/WASM samples and expired history passed.`;
 }
 
 const directory = path.join(path.dirname(fileURLToPath(import.meta.url)), "build");
@@ -256,6 +314,10 @@ try {
         res.setHeader("Content-Type", "text/html"); res.end(`<iframe style="width:1600px;height:950px"></iframe><script type="module">
           const send = value => fetch('/result', {method:'POST',body:JSON.stringify(value)});
           (${browserCheck.toString()})(${[endpoint, demos, files, oversizedLink].map(value => JSON.stringify(value)).join(",")}).then(ok => send({ok}), e => send({error:String(e.stack||e)}))</script>`);
+      } else if (url.pathname === sitePath + "check-folders") {
+        const html = await readFile(path.join(directory, "index.html"), "utf8");
+        res.setHeader("Content-Type", "text/html");
+        res.end(html.replace("</head>", "<script>parent.observeDirectoryAccess(window)</script></head>"));
       } else if (url.pathname === "/offline" && req.method === "POST") {
         offline = true; res.writeHead(204); res.end();
       } else if (url.pathname === "/result" && req.method === "POST") {
